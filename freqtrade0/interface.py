@@ -7,6 +7,7 @@ import logging
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
 from math import isinf, isnan
+from typing import Literal
 
 from pandas import DataFrame
 from pydantic import ValidationError
@@ -68,10 +69,10 @@ class IStrategy(freqtrade.strategy.IStrategy):
     
     
     @abstractmethod
-    def loop_entry(self,pair:str,timestamp:int) -> tuple[SignalDirection|None,str|None,float|None,float|None]|None:
+    def loop_entry(self,pair:str,timestamp:int) -> tuple[Literal["long","short"]|None,str|None,float|None,float|None]|None:
         '''
         return a tuple of (side,signal_name,amount,price)|None for the entry signal
-        *side: SignalDirection.LONG or SignalDirection.SHORT,If the side is none, no action will be performed.
+        *side: "long" or "short",If the side is none, no action will be performed.
         signal_name: str
         amount: float | None
         price: float | None
