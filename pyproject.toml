@@ -1,0 +1,12 @@
+[project]
+name = "freqtrade0"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+
+
+[tool.uv.sources]
+freqtrade = { path = "../freqtrade/dist/freqtrade-2025.5.dev0-py3-none-any.whl" }
+
+
