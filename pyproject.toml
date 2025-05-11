@@ -4,9 +4,12 @@ version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
-
+dependencies = [
+    "freqtrade",
+    "ta-lib>=0.6.3",
+]
 
 [tool.uv.sources]
-freqtrade = { path = "../freqtrade/dist/freqtrade-2025.5.dev0-py3-none-any.whl" }
+freqtrade = { git = "https://github.com/731315163/freqtrade.git" }
 
 
