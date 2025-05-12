@@ -56,6 +56,8 @@ class Runer:
         self.logfile = logfile if logfile else user_data_path / "logs" / "log.txt"
         if isinstance(configpath,Path):
             self.configpath = [configpath]
+        elif configpath is None:
+            self.configpath=[self.user_data_path / "config.json"]
         else:
             self.configpath = configpath
         self.config = self.load_config()
