@@ -6,45 +6,30 @@ Read the documentation to know what cli arguments you need.
 """
 import copy
 import logging
-from re import I
-import sys
+import signal
 from collections.abc import MutableSequence
 from datetime import datetime, timedelta, timezone, tzinfo
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal, Tuple, overload
+from typing import Any, Literal, overload
 
-#!/usr/bin/env python3
-"""
-Main Freqtrade bot script.
-Read the documentation to know what cli arguments you need.
-"""
-
-import logging
-import sys
-from typing import Any
-# check min. python version
-if sys.version_info < (3, 10):  # pragma: no cover  # noqa: UP036
-    sys.exit("Freqtrade requires Python version >= 3.10")
-
-
-import copy
 from freqtrade import __version__
 from freqtrade.commands import Arguments
+from freqtrade.configuration import Configuration, TimeRange
 from freqtrade.constants import DOCS_LINK
-from freqtrade.exceptions import ConfigurationError, FreqtradeException, OperationalException
-from freqtrade.loggers import setup_logging_pre
-from freqtrade.system import asyncio_setup, gc_set_threshold, print_version_info
-
-from freqtrade.configuration import TimeRange
 from freqtrade.data.history import history_utils
 from freqtrade.enums import CandleType
-from . import start_trading
-from . import hp,cmd
-from ..interface import IStrategy
-from .timeframestr import TimeFrameStr
-logger = logging.getLogger("freqtrade")
+from freqtrade.exceptions import (ConfigurationError, FreqtradeException,
+                                  OperationalException)
+from freqtrade.loggers import setup_logging_pre
+from freqtrade.system import (asyncio_setup, gc_set_threshold,print_version_info)
 
+from ..interface import IStrategy
+from ..worker import Worker
+from . import cmd, hp
+from .timeframestr import TimeFrameStr
+
+logger = logging.getLogger(__name__)
 
 
 class Runer:
@@ -56,7 +41,7 @@ class Runer:
         self,
         user_data_path: Path,
         timeframe: timedelta | None = None,
-        configpath: Path | None = None,
+        configpath: Path |list[Path]| None = None,
         logfile: Path | None = None,
         loglevel: str = "INFO",
         name: str = "",
@@ -69,21 +54,25 @@ class Runer:
         self.state = None
         self.user_data_path = user_data_path
         self.logfile = logfile if logfile else user_data_path / "logs" / "log.txt"
-        if configpath is not None and configpath.exists():
-            self.configpath = configpath
+        if isinstance(configpath,Path):
+            self.configpath = [configpath]
         else:
-            cp = user_data_path / "config.json"
-            if cp.exists():
-                self.configpath = cp
-
+            self.configpath = configpath
+        self.config = self.load_config()
+        
         self.strategy_name = strategy_name
         self.strategy = strategy
         self.timeframe = timeframe
-
+    def load_config(self):
+        if  self.configpath:
+            return Configuration.from_files([str(p) for p in self.configpath])
+        else:
+            config:dict[str,Any] = {}
+            return config
     def add_basecommands(
         self,
         commands: list,
-        confpath: Path | None = None,
+        confpath: Path | list |None= None,
         timeframe: timedelta | None = None,
         timeframedetail: timedelta | None = None,
         starttime: datetime | None = None,
@@ -93,16 +82,23 @@ class Runer:
     ):
 
         confpath = self.configpath if confpath is None else confpath
-        commands += [cmd.config, confpath, cmd.logfile, self.logfile]
-        if timeframedetail :
-            commands += [cmd.timeframedetail, str(TimeFrameStr(timeframedetail))]
-        if timeframe :
+        commands += [  cmd.logfile, self.logfile,cmd.config]
+        if isinstance(confpath, Path):
+            confpath = [confpath]
+        if not confpath:
+            confpath =[]
+        for p in confpath :
+            commands.append(p)
+        
+        if timeframedetail:
+            commands += [cmd.timeframedetail,str(TimeFrameStr(timeframedetail))]
+        if timeframe:
             commands += [cmd.timeframe, str(TimeFrameStr(timeframe))]
-        if starttime :
-            commands += [cmd.timerange, Runer.timestr(start=starttime, end=endtime)]
-        if strategyorname :
+        if starttime:
+            commands += [cmd.timerange,self.timestr(start=starttime, end=endtime)]
+        if strategyorname:
             commands += [cmd.strategy, strategyorname]
-        if verb :
+        if verb:
             commands.append(verb)
         return commands
 
@@ -120,13 +116,32 @@ class Runer:
             else:
                 ret[index] = str(v)
         return ret
+  
+       
 
     def trade(self, confp=None):
         if confp is None:
             confp = self.configpath
-        commandlist = ["trade", cmd.config, confp, cmd.strategy, self.strategy_name]
+        commandlist = ["trade", cmd.config, confp,cmd.strategy, self.strategy_name]
         args = self.get_arguments(commandlist)
-        start_trading(args,self.strategy)
+         
+
+        def term_handler(signum, frame):
+            # Raise KeyboardInterrupt - so we can handle it in the same way as Ctrl-C
+            raise KeyboardInterrupt()
+
+        # Create and run worker
+        self.worker = None
+        try:
+            signal.signal(signal.SIGTERM, term_handler)
+            self.worker = Worker(args, strategy=self.strategy)
+            self.worker.run()
+        finally:
+            if self.worker:
+                logger.info("worker found ... calling exit")
+                self.worker.exit()
+
+
 
     def read_data(
         self,
@@ -140,7 +155,8 @@ class Runer:
             tr = timeframe
         else:
             b, e = timerange
-            tr = TimeRange(startts=int(b.timestamp()), stopts=int(e.timestamp()))
+            tr = TimeRange(startts=int(b.timestamp()),
+                           stopts=int(e.timestamp()))
         return history_utils.load_pair_history(
             datadir=self.user_data_path / "data" / exchange,
             pair=pair,
@@ -155,7 +171,7 @@ class Runer:
         start: datetime,
         end: datetime | None = None,
         confp: Path | None = None,
-        timeframedetail: timedelta | None =None,
+        timeframedetail: timedelta | None = None,
         timeframe: timedelta | None = None,
     ):
 
@@ -361,7 +377,7 @@ class Runer:
 
     @staticmethod
     def timestr(start: datetime | None = None, end: datetime | None = None):
-        
+
         if start is not None:
             timestr = start.strftime("%Y%m%d") + "-"
         else:
@@ -421,9 +437,10 @@ class Runer:
         args = self.get_arguments(commandslist)
         # args["erase"] = erase
         self._run(args)
-    def webserver(self, 
-        configpath: Path | None = None,
-       ):
+
+    def webserver(self,
+                  configpath: Path | None = None,
+                  ):
         commandslist = ["webserver"]
         commandslist = self.add_basecommands(
             commands=commandslist,
@@ -431,17 +448,16 @@ class Runer:
         )
         args = self.get_arguments(commandslist)
         self._run(args)
+
     def get_arguments(self, sysargv: MutableSequence):
-        sysargv = Runer._elements_to_str(sysargv)
+        sysargv = self._elements_to_str(sysargv)
+        arguments = Arguments(sysargv)
+        args = arguments.get_parsed_arg()
+        return args
 
-        return sysargv
-
-    def _run(self, sysargv: MutableSequence[str],fun=None):
+    def _run(self, args: dict, fun=None):
         return_code: Any = 1
         try:
-            
-            arguments = Arguments(sysargv)
-            args = arguments.get_parsed_arg()
 
             # Call subcommand.
             if args.get("version") or args.get("version_main"):
