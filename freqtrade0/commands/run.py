@@ -124,10 +124,9 @@ class Runer:
     def trade(self, confp=None):
         if confp is None:
             confp = self.configpath
-        commandlist = ["trade", cmd.config, confp,cmd.strategy, self.strategy_name]
+        commandlist=        self.add_basecommands(["trade"],strategyorname=self.strategy_name)
         args = self.get_arguments(commandlist)
-         
-
+     
         def term_handler(signum, frame):
             # Raise KeyboardInterrupt - so we can handle it in the same way as Ctrl-C
             raise KeyboardInterrupt()
