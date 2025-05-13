@@ -2,6 +2,7 @@
 Freqtrade is the main module of this bot. It contains the class Freqtrade()
 """
 
+from ast import Str
 import logging
 import traceback
 from copy import deepcopy
@@ -53,7 +54,7 @@ from freqtrade.persistence import Order, PairLocks, Trade, init_db
 from freqtrade.persistence.key_value_store import set_startup_time
 from freqtrade.plugins.pairlistmanager import PairListManager
 from freqtrade.plugins.protectionmanager import ProtectionManager
-from freqtrade.resolvers import ExchangeResolver, StrategyResolver
+from freqtrade.resolvers import ExchangeResolver
 from freqtrade.rpc import RPCManager
 from freqtrade.rpc.external_message_consumer import ExternalMessageConsumer
 from freqtrade.rpc.rpc_types import (
@@ -68,7 +69,7 @@ from freqtrade.strategy.strategy_wrapper import strategy_safe_wrapper
 from freqtrade.util import FtPrecise, MeasureTime, PeriodicCache, dt_from_ts, dt_now
 from freqtrade.util.migrations.binance_mig import migrate_binance_futures_names
 from freqtrade.wallets import Wallets
-from .interface import IStrategy
+from .strategy import IStrategy,StrategyResolver
 
 logger = logging.getLogger(__name__)
 
@@ -78,7 +79,7 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
     Freqtrade is the main class of the bot.
     This is from here the bot start its logic.
     """
-    def __init__(self, config: Config,strategy:IStrategy|None=None) -> None:
+    def __init__(self, config: Config,strategy_type:type|None=None) -> None:
         """
         Init all variables and objects the bot needs to work
         :param config: configuration dict, you can use Configuration.get_config()
@@ -94,8 +95,8 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
         exchange_config: ExchangeConfig = deepcopy(config["exchange"])
         # Remove credentials from original exchange config to avoid accidental credential exposure
         remove_exchange_credentials(config["exchange"], True)
-        if strategy:
-            self.strategy :IStrategy= strategy
+        if strategy_type:
+            self.strategy :IStrategy= StrategyResolver.create_strategy(strategy_type=strategy_type,config=self.config)
         else:
             self.strategy :IStrategy=cast(IStrategy,  StrategyResolver.load_strategy(self.config))
 
@@ -317,10 +318,10 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
     #
     def _create_trade_loop(self, pair:str):
         current_time = self.dataprovider.orderbook(pair=pair,maximum=1)["timestamp"]
-        result = self.strategy.loop_entry(pair=pair,timestamp=current_time)
+        result = self.strategy._loop_entry(pair=pair,timestamp=current_time)
         if result is None:
             return False
-        signal,entry_tag,stake_amount,price= result
+        signal,stake_amount,price,entry_tag= result
         not_opening = not self._check_pair_direction_match(
             pair, signal, self.strategy.can_hedge_mode
         )
@@ -349,7 +350,7 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
             try:
                 with self._exit_lock:
                     if self.strategy.loop_enable:
-                        trades_created+=self._create_trade_loop(pair)
+                        trades_created += self._create_trade_loop(pair)
                     else:
                         trades_created += self.create_trade(pair)
             except DependencyException as exception:

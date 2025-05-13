@@ -10,14 +10,13 @@ from os import getpid
 from typing import Any
 
 import sdnotify
-
 from freqtrade import __version__
 from freqtrade.configuration import Configuration
 from freqtrade.constants import PROCESS_THROTTLE_SECS, RETRY_TIMEOUT, Config
 from freqtrade.enums import RPCMessageType, State
 from freqtrade.exceptions import OperationalException, TemporaryError
+
 from .freqtradebot import FreqtradeBot
-from .interface import IStrategy
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +26,7 @@ class Worker:
     Freqtradebot worker class
     """
 
-    def __init__(self, args: dict[str, Any], config: Config | None = None,strategy:IStrategy|None=None) -> None:
+    def __init__(self, args: dict[str, Any], config: Config | None = None,strategy:type|None=None) -> None:
         """
         Init all variables and objects the bot needs to work
         """
@@ -42,16 +41,16 @@ class Worker:
         # Tell systemd that we completed initialization phase
         self._notify("READY=1")
 
-    def _init(self, reconfig: bool,strategy:IStrategy|None=None) -> None:
+    def _init(self, reconfig: bool,strategy:type|None=None) -> None:
         """
         Also called from the _reconfigure() method (with reconfig=True).
         """
         if reconfig or self._config is None:
             # Load configuration
             self._config = Configuration(self._args, None).get_config()
-
+        
         # Init the instance of the bot
-        self.freqtrade = FreqtradeBot(self._config,strategy=strategy)
+        self.freqtrade = FreqtradeBot(self._config,strategy_type=strategy)
 
         internals_config = self._config.get("internals", {})
         self._throttle_secs = internals_config.get("process_throttle_secs", PROCESS_THROTTLE_SECS)/1000
@@ -122,9 +121,8 @@ class Worker:
             # Use an offset of 1s to ensure a new candle has been issued
             self._throttle(
                 func=self._process_running,
-                throttle_secs=self._throttle_secs,
-                timeframe=self._config["timeframe"] if self._config else None,
-                timeframe_offset=1,
+                throttle_secs=self._throttle_secs
+               
             )
 
         if self._heartbeat_interval:

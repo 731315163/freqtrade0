@@ -24,7 +24,7 @@ from freqtrade.exceptions import (ConfigurationError, FreqtradeException,
 from freqtrade.loggers import setup_logging_pre
 from freqtrade.system import (asyncio_setup, gc_set_threshold,print_version_info)
 
-from ..interface import IStrategy
+from ..strategy.interface import IStrategy
 from ..worker import Worker
 from . import cmd, hp
 from .timeframestr import TimeFrameStr
@@ -46,7 +46,7 @@ class Runer:
         loglevel: str = "INFO",
         name: str = "",
         strategy_name: str = "",
-        strategy: IStrategy | None = None,
+        strategy: type | None = None,
     ):
         setup_logging_pre()
         asyncio_setup()
@@ -60,17 +60,18 @@ class Runer:
             self.configpath=[self.user_data_path / "config.json"]
         else:
             self.configpath = configpath
-        self.config = self.load_config()
+        # self.config = self.load_config()
         
         self.strategy_name = strategy_name
+    
         self.strategy = strategy
         self.timeframe = timeframe
-    def load_config(self):
-        if  self.configpath:
-            return Configuration.from_files([str(p) for p in self.configpath])
-        else:
-            config:dict[str,Any] = {}
-            return config
+    # def load_config(self):
+    #     if  self.configpath:
+    #         return Configuration.from_files([str(p) for p in self.configpath])
+    #     else:
+    #         config:dict[str,Any] = {}
+    #         return config
     def add_basecommands(
         self,
         commands: list,
@@ -84,18 +85,19 @@ class Runer:
     ):
 
         confpath = self.configpath if confpath is None else confpath
-        commands += [  cmd.logfile, self.logfile,cmd.config]
+        commands += [ cmd.logfile, self.logfile,cmd.config]
         if isinstance(confpath, Path):
             confpath = [confpath]
-        if not confpath:
-            confpath =[]
+       
         for p in confpath :
             commands.append(p)
         
         if timeframedetail:
-            commands += [cmd.timeframedetail,str(TimeFrameStr(timeframedetail))]
+            timeframedetail_str =str(TimeFrameStr(timeframedetail)) if isinstance(timeframedetail, timedelta) else timeframedetail
+            commands += [cmd.timeframedetail,timeframedetail_str]
         if timeframe:
-            commands += [cmd.timeframe, str(TimeFrameStr(timeframe))]
+            timeframe_str= str(TimeFrameStr(timeframe)) if isinstance(timeframe, timedelta) else timeframe
+            commands += [cmd.timeframe,timeframe_str]
         if starttime:
             commands += [cmd.timerange,self.timestr(start=starttime, end=endtime)]
         if strategyorname:
@@ -121,7 +123,7 @@ class Runer:
   
        
 
-    def trade(self, confp=None):
+    def trade(self,cls:type|None=None, confp=None):
         if confp is None:
             confp = self.configpath
         commandlist=        self.add_basecommands(["trade"],strategyorname=self.strategy_name)
@@ -135,7 +137,8 @@ class Runer:
         self.worker = None
         try:
             signal.signal(signal.SIGTERM, term_handler)
-            self.worker = Worker(args, strategy=self.strategy)
+            
+            self.worker = Worker(args, strategy= cls or self.strategy)
             self.worker.run()
         finally:
             if self.worker:

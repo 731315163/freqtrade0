@@ -5,6 +5,7 @@ import logging
 import time
 from copy import deepcopy
 from datetime import timedelta
+from typing import cast
 from unittest.mock import ANY, MagicMock, PropertyMock, patch
 
 import pytest
@@ -336,6 +337,7 @@ def test_edge_overrides_stoploss(
     # stoploss should be hit
     assert freqtrade.handle_trade(trade) is not ignore_strat_sl
     if not ignore_strat_sl:
+        trade = cast(Trade, trade)
         assert log_has_re("Exit for NEO/BTC detected. Reason: stop_loss.*", caplog)
         assert trade.exit_reason == ExitType.STOP_LOSS.value
         # Test compatibility ...
