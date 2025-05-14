@@ -17,7 +17,7 @@ from freqtrade.constants import REQUIRED_ORDERTIF, REQUIRED_ORDERTYPES, USERPATH
 from freqtrade.enums import TradingMode
 from freqtrade.exceptions import OperationalException
 from freqtrade.resolvers.iresolver import IResolver
-from . import IStrategy
+from ..strategy import IStrategy
 
 
 logger = logging.getLogger(__name__)

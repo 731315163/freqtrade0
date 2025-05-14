@@ -95,7 +95,7 @@ class IStrategy(freqtrade.strategy.IStrategy):
     
     
     @abstractmethod
-    def loop_entry(self,pair:str,timestamp:int) ->tuple|None:
+    def loop_entry(self,pair:str,timestamp:datetime) ->tuple|None:
         
         '''
         return tuple[Literal["long","short"]|None,float|None,float|None,str|None]|None:
@@ -108,7 +108,7 @@ class IStrategy(freqtrade.strategy.IStrategy):
         pass
     
     def _loop_entry(
-        self,pair:str,timestamp:int,
+        self,pair:str,timestamp:datetime,
         **kwargs
     ) -> tuple[Literal["long","short"]|None,float|None,float|None,str|None]|None:
         """

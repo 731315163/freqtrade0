@@ -24,10 +24,10 @@ from freqtrade.exceptions import (ConfigurationError, FreqtradeException,
 from freqtrade.loggers import setup_logging_pre
 from freqtrade.system import (asyncio_setup, gc_set_threshold,print_version_info)
 
-from ..strategy.interface import IStrategy
-from ..worker import Worker
-from . import cmd, hp
-from .timeframestr import TimeFrameStr
+from .strategy.interface import IStrategy
+from .worker import Worker
+from .commands import cmd, hp
+from .commands.timeframestr import TimeFrameStr
 
 logger = logging.getLogger(__name__)
 

@@ -2,7 +2,6 @@
 Freqtrade is the main module of this bot. It contains the class Freqtrade()
 """
 
-from ast import Str
 import logging
 import traceback
 from copy import deepcopy
@@ -10,42 +9,26 @@ from datetime import datetime, time, timedelta, timezone
 from math import isclose
 from threading import Lock
 from time import sleep
-from typing import Any, Optional, cast
+from typing import Any, cast
 
-from schedule import Scheduler
-
-from freqtrade import constants
 import freqtrade
+from freqtrade import constants
 from freqtrade.configuration import validate_config_consistency
-from freqtrade.constants import BuySell, Config, EntryExecuteMode, ExchangeConfig, LongShort
+from freqtrade.constants import (BuySell, Config, EntryExecuteMode,
+                                 ExchangeConfig, LongShort)
 from freqtrade.data.converter import order_book_to_dataframe
-from freqtrade.data.dataprovider import DataProvider
 from freqtrade.edge import Edge
-from freqtrade.enums import (
-    ExitCheckTuple,
-    ExitType,
-    MarginMode,
-    RPCMessageType,
-    SignalDirection,
-    State,
-    TradingMode,
-)
+from freqtrade.enums import (ExitCheckTuple, ExitType, MarginMode,
+                             RPCMessageType, SignalDirection, State,
+                             TradingMode)
 from freqtrade.enums.runmode import RunMode
-from freqtrade.exceptions import (
-    DependencyException,
-    ExchangeError,
-    InsufficientFundsError,
-    InvalidOrderException,
-    PricingError,
-)
-from freqtrade.exchange import (
-    ROUND_DOWN,
-    ROUND_UP,
-    remove_exchange_credentials,
-    timeframe_to_minutes,
-    timeframe_to_next_date,
-    timeframe_to_seconds,
-)
+from freqtrade.exceptions import (DependencyException, ExchangeError,
+                                  InsufficientFundsError,
+                                  InvalidOrderException, PricingError)
+from freqtrade.exchange import (ROUND_DOWN, ROUND_UP,
+                                remove_exchange_credentials,
+                                timeframe_to_minutes, timeframe_to_next_date,
+                                timeframe_to_seconds)
 from freqtrade.exchange.exchange_types import CcxtOrder, OrderBook
 from freqtrade.leverage.liquidation_price import update_liquidation_prices
 from freqtrade.misc import safe_value_fallback, safe_value_fallback2
@@ -57,23 +40,25 @@ from freqtrade.plugins.protectionmanager import ProtectionManager
 from freqtrade.resolvers import ExchangeResolver
 from freqtrade.rpc import RPCManager
 from freqtrade.rpc.external_message_consumer import ExternalMessageConsumer
-from freqtrade.rpc.rpc_types import (
-    ProfitLossStr,
-    RPCCancelMsg,
-    RPCEntryMsg,
-    RPCExitCancelMsg,
-    RPCExitMsg,
-    RPCProtectionMsg,
-)
+from freqtrade.rpc.rpc_types import (ProfitLossStr, RPCCancelMsg, RPCEntryMsg,
+                                     RPCExitCancelMsg, RPCExitMsg,
+                                     RPCProtectionMsg)
 from freqtrade.strategy.strategy_wrapper import strategy_safe_wrapper
-from freqtrade.util import FtPrecise, MeasureTime, PeriodicCache, dt_from_ts, dt_now
+from freqtrade.util import (FtPrecise, MeasureTime, PeriodicCache, dt_from_ts,
+                            dt_now)
 from freqtrade.util.migrations.binance_mig import migrate_binance_futures_names
 from freqtrade.wallets import Wallets
-from .strategy import IStrategy,StrategyResolver
+from schedule import Scheduler
+
+from freqtrade0.data.dataprovider import DataProvider
+from freqtrade0.resolvers import StrategyResolver
+from freqtrade0.strategy import IStrategy
 
 logger = logging.getLogger(__name__)
 
 import freqtrade.freqtradebot
+
+
 class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
     """
     Freqtrade is the main class of the bot.
@@ -217,17 +202,18 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
         self.active_pair_whitelist = self._refresh_active_whitelist(trades)
 
         # Refreshing candles
-        self.dataprovider.refresh(
+        ohlcv_data,trades_data=self.dataprovider.refresh(
             self.pairlists.create_pair_list(self.active_pair_whitelist),
             self.strategy.gather_informative_pairs(),
         )
-
+        ohlcv_data_length ,trades_data_length=len(ohlcv_data),len(trades_data)
         strategy_safe_wrapper(self.strategy.bot_loop_start, supress_error=True)(
             current_time=datetime.now(timezone.utc)
         )
 
         with self._measure_execution:
-            self.strategy.analyze(self.active_pair_whitelist)
+            if ohlcv_data_length>0:
+                self.strategy.analyze(self.active_pair_whitelist)
 
         with self._exit_lock:
             # Check for exchange cancellations, timeouts and user requested replace
@@ -245,17 +231,36 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
         # Check if we need to adjust our current positions before attempting to enter new trades.
         if self.strategy.position_adjustment_enable:
             with self._exit_lock:
-                self.process_open_trade_positions()
+                if trades_data_length>0:
+                    self.process_open_trade_positions()
 
         # Then looking for entry opportunities
         if self.state == State.RUNNING and self.get_free_open_trades():
-            self.enter_positions()
+            whitelist = self._get_nolock_whitelist()
+            if not whitelist:
+                self.log_once("Active pair whitelist is empty.", logger.info)
+            else:
+                trades_created = 0
+        # Create entity and execute trade for each pair from whitelist
+                for pair in whitelist:
+                    try:
+                        with self._exit_lock:
+                            if self.strategy.loop_enable and trades_data_length > 0:
+                                trades_created += self._create_trade_loop(pair)
+                            elif ohlcv_data_length > 0:
+                                trades_created += self.create_trade(pair)
+                    except DependencyException as exception:
+                        logger.warning("Unable to create trade for %s: %s", pair, exception)
+
+                    if not trades_created:
+                        logger.debug("Found no enter signals for whitelisted currencies. Trying again...")
+               
+            
         self._schedule.run_pending()
         Trade.commit()
         self.rpc.process_msg_queue(self.dataprovider._msg_queue)
         self.last_process = datetime.now(timezone.utc)
 
-   
 
     def _get_bidirectional_pairs(self):
 
@@ -326,8 +331,8 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
     # enter positions / open trades logic and methods
     #
     def _create_trade_loop(self, pair:str):
-        current_time = self.dataprovider.orderbook(pair=pair,maximum=1)["timestamp"]
-        result = self.strategy._loop_entry(pair=pair,timestamp=current_time)
+        # current_time = self.dataprovider.orderbook(pair=pair,maximum=1)["timestamp"]
+        result = self.strategy._loop_entry(pair=pair,timestamp=dt_now())
         if result is None:
             return False
         signal,stake_amount,price,entry_tag= result
