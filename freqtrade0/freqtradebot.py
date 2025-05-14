@@ -10,7 +10,7 @@ from datetime import datetime, time, timedelta, timezone
 from math import isclose
 from threading import Lock
 from time import sleep
-from typing import Any, cast
+from typing import Any, Optional, cast
 
 from schedule import Scheduler
 
@@ -290,19 +290,21 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
             return False
         else:
             return True
-    def _get_nolock_witlist(self)->list[str]|None:
-        
+    def _get_nolock_whitelist(self) -> list[str]|None:
+        """
+        获取非锁定状态下的白名单，若存在全局锁定则返回空列表或 None。
+        """
+        # 创建白名单的深拷贝
         whitelist = deepcopy(self.active_pair_whitelist)
+        
+        # 如果白名单为空，记录日志并返回
         if not whitelist:
             self.log_once("Active pair whitelist is empty.", logger.info)
             return whitelist
-       
-
-     
+        
+        # 检查全局锁定状态
         if PairLocks.is_global_lock(side="*"):
-            # This only checks for total locks (both sides).
-            # per-side locks will be evaluated by `is_pair_locked` within create_trade,
-            # once the direction for the trade is clear.
+            # 全局锁定存在时，记录日志并返回空列表
             lock = PairLocks.get_pair_longest_lock("*")
             if lock:
                 self.log_once(
@@ -313,6 +315,13 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
                 )
             else:
                 self.log_once("Global pairlock active. Not creating new trades.", logger.info)
+            
+            # 显式返回空列表，表示因锁定无法创建新交易
+            return []
+    
+        # 所有检查通过，返回白名单
+        return whitelist
+   
     #
     # enter positions / open trades logic and methods
     #
@@ -341,7 +350,7 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
         """
         trades_created = 0
 
-        whitelist = self._get_nolock_witlist()
+        whitelist = self._get_nolock_whitelist()
         if not whitelist:
             self.log_once("Active pair whitelist is empty.", logger.info)
             return trades_created
