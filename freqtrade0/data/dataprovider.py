@@ -70,53 +70,11 @@ class DataProvider(dataprovider.DataProvider):
         self.producers = self._config.get("external_message_consumer", {}).get("producers", [])
         self.external_data_enabled = len(self.producers) > 0
 
-    def _set_dataframe_max_index(self, pair: str, limit_index: int):
-        """
-        Limit analyzed dataframe to max specified index.
-        Only relevant in backtesting.
-        :param limit_index: dataframe index.
-        """
-        self.__slice_index[pair] = limit_index
 
-    def _set_dataframe_max_date(self, limit_date: datetime):
-        """
-        Limit informative dataframe to max specified index.
-        Only relevant in backtesting.
-        :param limit_date: "current date"
-        """
-        self.__slice_date = limit_date
 
-    def _set_cached_df(
-        self, pair: str, timeframe: str, dataframe: DataFrame, candle_type: CandleType
-    ) -> None:
-        """
-        Store cached Dataframe.
-        Using private method as this should never be used by a user
-        (but the class is exposed via `self.dp` to the strategy)
-        :param pair: pair to get the data for
-        :param timeframe: Timeframe to get data for
-        :param dataframe: analyzed dataframe
-        :param candle_type: Any of the enum CandleType (must match trading mode!)
-        """
-        pair_key = (pair, timeframe, candle_type)
-        self.__cached_pairs[pair_key] = (dataframe, datetime.now(timezone.utc))
 
-    # For multiple producers we will want to merge the pairlists instead of overwriting
-    def _set_producer_pairs(self, pairlist: list[str], producer_name: str = "default"):
-        """
-        Set the pairs received to later be used.
 
-        :param pairlist: List of pairs
-        """
-        self.__producer_pairs[producer_name] = pairlist
-
-    def get_producer_pairs(self, producer_name: str = "default") -> list[str]:
-        """
-        Get the pairs cached from the producer
-
-        :returns: List of pairs
-        """
-        return self.__producer_pairs.get(producer_name, []).copy()
+   
 
 
 
@@ -241,7 +199,12 @@ class DataProvider(dataprovider.DataProvider):
 
 
 
-
+    def merge_pairs_helperpairs(self,pairlist: ListPairsWithTimeframes,
+        helping_pairs: ListPairsWithTimeframes | None = None):
+        if self._exchange is None:
+            raise OperationalException(NO_EXCHANGE_EXCEPTION)
+        final_pairs = (pairlist + helping_pairs) if helping_pairs else pairlist
+        return final_pairs
     # Exchange functions
 
     def refresh(
@@ -261,12 +224,25 @@ class DataProvider(dataprovider.DataProvider):
         last_refresh_time=deepcopy(self._exchange._pairs_last_refresh_time)
         self._exchange.refresh_latest_ohlcv(final_pairs)
         for pair_timeframe,time in self._exchange._pairs_last_refresh_time.items():
-            if last_refresh_time[pair_timeframe] < time:
+            if pair_timeframe in last_refresh_time and last_refresh_time[pair_timeframe] < time:
                 ohlcv_refresh_time[pair_timeframe]=time
         # refresh latest trades data
         trades_refresh_time= self.refresh_latest_trades(pairlist)
         return ohlcv_refresh_time,trades_refresh_time
-
+    def refresh_latest_ohlcv(self, pairlist: ListPairsWithTimeframes) -> dict:
+        """
+        Refresh latest ohlcv data (if enabled in config)
+        """
+        if self._exchange is None:
+            raise OperationalException(NO_EXCHANGE_EXCEPTION)
+        ohlcv_refresh_time={}
+       
+        last_refresh_time=deepcopy(self._exchange._pairs_last_refresh_time)
+        self._exchange.refresh_latest_ohlcv(pairlist)
+        for pair_timeframe,time in self._exchange._pairs_last_refresh_time.items():
+            if pair_timeframe in last_refresh_time and last_refresh_time[pair_timeframe] < time:
+                ohlcv_refresh_time[pair_timeframe]=time
+        return ohlcv_refresh_time
     def refresh_latest_trades(self, pairlist: ListPairsWithTimeframes) -> dict:
         """
         Refresh latest trades data (if enabled in config)

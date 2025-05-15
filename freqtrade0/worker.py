@@ -2,12 +2,13 @@
 Main Freqtrade worker class.
 """
 
+import asyncio
 import logging
 import time
 import traceback
 from collections.abc import Callable
 from os import getpid
-from typing import Any
+from typing import Any, Coroutine, Self
 
 import sdnotify
 from freqtrade import __version__
@@ -40,6 +41,7 @@ class Worker:
 
         # Tell systemd that we completed initialization phase
         self._notify("READY=1")
+        self._looptasks= []
 
     def _init(self, reconfig: bool,strategy:type|None=None) -> None:
         """
@@ -53,7 +55,7 @@ class Worker:
         self.freqtrade = FreqtradeBot(self._config,strategy_type=strategy)
 
         internals_config = self._config.get("internals", {})
-        self._throttle_secs = internals_config.get("process_throttle_secs", PROCESS_THROTTLE_SECS)/1000
+        self._throttle_secs = internals_config.get("process_throttle_secs", PROCESS_THROTTLE_SECS)
         self._heartbeat_interval = internals_config.get("heartbeat_interval", 60)
 
         self._sd_notify = (
@@ -72,11 +74,100 @@ class Worker:
             self._sd_notify.notify(message)
 
     def run(self) -> None:
-        state = None
-        while True:
-            state = self._worker(old_state=state)
-            if state == State.RELOAD_CONFIG:
-                self._reconfigure()
+        # state = None
+        # while True:
+        #     state = self._worker(old_state=state)
+        #     if state == State.RELOAD_CONFIG:
+        #         self._reconfigure()
+        if len(self._looptasks) <= 0:
+            self.register()
+        async def _run():
+            await asyncio.gather(*self._looptasks)
+        asyncio.run(_run())
+    
+    def register_looptask(self,task:Callable[[State,State|None]]):
+        async def loop():
+           oldstate = None
+           while True:
+               state = self.freqtrade.state
+               await task(state,oldstate)
+               oldstate = state
+        self._looptasks.append(loop)
+    
+    
+    
+    def _reload_state(self:Self,state:State, old_state:State|None=None):
+         # Log state transition
+        if state != old_state:
+            if old_state != State.RELOAD_CONFIG:
+                self.freqtrade.notify_status(f"{state.name.lower()}")
+
+            logger.info(
+                f"Changing state{f' from {old_state.name}' if old_state else ''} to: {state.name}"
+            )
+            if state in (State.RUNNING, State.PAUSED) and old_state not in (
+                State.RUNNING,
+                State.PAUSED,
+            ):
+                self.freqtrade.startup()
+
+            if state == State.STOPPED:
+                self.freqtrade.check_for_open_trades()
+
+            # Reset heartbeat timestamp to log the heartbeat message at
+            # first throttling iteration when the state changes
+            self._heartbeat_msg = 0
+    def _stopstate(this:Self,state, old_state=None):
+        self = this
+        if state == State.STOPPED:
+            # Ping systemd watchdog before sleeping in the stopped state
+            self._notify("WATCHDOG=1\nSTATUS=State: STOPPED.")
+
+            self._throttle(func=self._process_stopped, throttle_secs=self._throttle_secs)
+
+    
+    def _process_state(self:Self,state, old_state=None):
+        if state in (State.RUNNING, State.PAUSED):
+            state_str = "RUNNING" if state == State.RUNNING else "PAUSED"
+            # Ping systemd watchdog before throttling
+            self._notify(f"WATCHDOG=1\nSTATUS=State: {state_str}.")
+
+            # Use an offset of 1s to ensure a new candle has been issued
+            self._throttle(
+                func=self._process_running,
+                throttle_secs=self._throttle_secs
+            )
+    def _process_loop_state(self:Self,state, old_state=None):
+        if state in (State.RUNNING, State.PAUSED):
+            state_str = "RUNNING" if state == State.RUNNING else "PAUSED"
+            # Ping systemd watchdog before throttling
+            self._notify(f"WATCHDOG=1\nSTATUS=State: {state_str}.")
+            # Use an offset of 1s to ensure a new candle has been issued
+            self._throttle(
+                func=lambda self:self._process_running_callback(callback=self.freqtrade.process_trades),
+                throttle_secs=self._throttle_secs/1000
+            )
+    def _heartbeat(self:Self,state, old_state=None):
+        state = self.freqtrade.state
+        if self._heartbeat_interval:
+            now = time.time()
+            if (now - self._heartbeat_msg) > self._heartbeat_interval:
+                version = __version__
+                strategy_version = self.freqtrade.strategy.version()
+                if strategy_version is not None:
+                    version += ", strategy_version: " + strategy_version
+                logger.info(
+                    f"Bot heartbeat. PID={getpid()}, version='{version}', state='{state.name}'"
+                )
+                self._heartbeat_msg = now
+
+    def register(self):
+        self.register_looptask(self._reload_state)
+        self.register_looptask(self._stopstate) 
+        self.register_looptask(self._heartbeat)
+        self.register_looptask(self._process_state)
+        self.register_looptask(self._process_loop_state)
+        
 
     def _worker(self, old_state: State | None) -> State:
         """
@@ -174,10 +265,9 @@ class Worker:
 
     def _process_stopped(self) -> None:
         self.freqtrade.process_stopped()
-
-    def _process_running(self) -> None:
+    def _process_running_callback(self,callback) -> None:
         try:
-            self.freqtrade.process()
+            callback()
         except TemporaryError as error:
             logger.warning(f"Error: {error}, retrying in {RETRY_TIMEOUT} seconds...")
             time.sleep(RETRY_TIMEOUT)
@@ -191,6 +281,9 @@ class Worker:
 
             logger.exception("OperationalException. Stopping trader ...")
             self.freqtrade.state = State.STOPPED
+    def _process_running(self) -> None:
+        self._process_running_callback(self.freqtrade.process)
+       
 
     def _reconfigure(self) -> None:
         """
