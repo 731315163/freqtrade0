@@ -99,28 +99,31 @@ class DataProvider(dataprovider.DataProvider):
         return final_pairs
     # Exchange functions
 
-    # def refresh(
-    #     self,
-    #     pairlist: ListPairsWithTimeframes,
-    #     helping_pairs: ListPairsWithTimeframes | None = None,
-    # ) -> tuple[dict,dict]:
-    #     """
-    #     Refresh data, called with each cycle
-    #     """
-    #     if self._exchange is None:
-    #         raise OperationalException(NO_EXCHANGE_EXCEPTION)
-    #     final_pairs = (pairlist + helping_pairs) if helping_pairs else pairlist
-    #     # refresh latest ohlcv data
-    #     ohlcv_refresh_time={}
-       
-    #     last_refresh_time=deepcopy(self._exchange._pairs_last_refresh_time)
-    #     self._exchange.refresh_latest_ohlcv(final_pairs)
-    #     for pair_timeframe,time in self._exchange._pairs_last_refresh_time.items():
-    #         if pair_timeframe in last_refresh_time and last_refresh_time[pair_timeframe] < time:
-    #             ohlcv_refresh_time[pair_timeframe]=time
-    #     # refresh latest trades data
-    #     trades_refresh_time= self.refresh_latest_trades(pairlist)
-    #     return ohlcv_refresh_time,trades_refresh_time
+    def refresh(
+        self,
+        pairlist: ListPairsWithTimeframes,
+        helping_pairs: ListPairsWithTimeframes | None = None,
+    ) -> None:
+        """
+        Refresh data, called with each cycle
+        """
+        if self._exchange is None:
+            raise OperationalException(NO_EXCHANGE_EXCEPTION)
+        final_pairs = (pairlist + helping_pairs) if helping_pairs else pairlist
+        # refresh latest ohlcv data
+        self._exchange.refresh_latest_ohlcv(final_pairs)
+        # refresh latest trades data
+        self.refresh_latest_trades(pairlist)
+
+    def refresh_latest_trades(self, pairlist: ListPairsWithTimeframes) -> None:
+        """
+        Refresh latest trades data (if enabled in config)
+        """
+
+        use_public_trades = self._config.get("exchange", {}).get("use_public_trades", False)
+        if use_public_trades:
+            if self._exchange:
+                self._exchange.refresh_latest_trades(pairlist)
     async def refresh_latest_ohlcv(self, pairlist: ListPairsWithTimeframes) -> dict:
         """
         Refresh latest ohlcv data (if enabled in config)
@@ -135,7 +138,7 @@ class DataProvider(dataprovider.DataProvider):
             if pair_timeframe in last_refresh_time and last_refresh_time[pair_timeframe] < time:
                 ohlcv_refresh_time[pair_timeframe]=time
         return ohlcv_refresh_time
-    async def refresh_latest_trades(self, pairlist: ListPairsWithTimeframes) -> dict:
+    async def async_refresh_latest_trades(self, pairlist: ListPairsWithTimeframes) -> dict:
         """
         Refresh latest trades data (if enabled in config)
         """

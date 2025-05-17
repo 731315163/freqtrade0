@@ -37,7 +37,6 @@ from freqtrade.persistence import Order, PairLocks, Trade, init_db
 from freqtrade.persistence.key_value_store import set_startup_time
 from freqtrade.plugins.pairlistmanager import PairListManager
 from freqtrade.plugins.protectionmanager import ProtectionManager
-from freqtrade.resolvers import ExchangeResolver
 from freqtrade.rpc import RPCManager
 from freqtrade.rpc.external_message_consumer import ExternalMessageConsumer
 from freqtrade.rpc.rpc_types import (ProfitLossStr, RPCCancelMsg, RPCEntryMsg,
@@ -51,7 +50,7 @@ from freqtrade.wallets import Wallets
 from schedule import Scheduler
 
 from freqtrade0.data.dataprovider import DataProvider
-from freqtrade0.resolvers import StrategyResolver
+from freqtrade0.resolvers import StrategyResolver,ExchangeResolver
 from freqtrade0.strategy import IStrategy
 
 logger = logging.getLogger(__name__)
@@ -184,7 +183,7 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
         
         
         
-    async def process(self) -> None:
+    def process(self) -> None:
         """
         Queries the persistence layer for open trades and handles them,
         otherwise a new trade is created.
@@ -202,12 +201,14 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
         self.active_pair_whitelist = self._refresh_active_whitelist(trades)
 
         # Refreshing candles
-          # Refreshing candles
-        pair_list =self.dataprovider.merge_pairs_helperpairs(self.pairlists.create_pair_list(self.active_pair_whitelist),
-            self.strategy.gather_informative_pairs())
-        await self.dataprovider.refresh_latest_ohlcv(
-            pair_list
+        self.dataprovider.refresh(
+            self.pairlists.create_pair_list(self.active_pair_whitelist),
+            self.strategy.gather_informative_pairs(),
         )
+        #   # Refreshing candles
+        # pair_list =self.dataprovider.merge_pairs_helperpairs(self.pairlists.create_pair_list(self.active_pair_whitelist),
+        #     self.strategy.gather_informative_pairs())
+    
         strategy_safe_wrapper(self.strategy.bot_loop_start, supress_error=True)(
             current_time=datetime.now(timezone.utc)
         )
@@ -244,6 +245,8 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
                 for pair in whitelist:
                     try:
                         with self._exit_lock:
+                                if self.strategy.loop_enable :
+                                    trades_created += self._create_trade_loop(pair)
                                 trades_created += self.create_trade(pair)
                     except DependencyException as exception:
                         logger.warning("Unable to create trade for %s: %s", pair, exception)
@@ -251,7 +254,6 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
                     if not trades_created:
                         logger.debug("Found no enter signals for whitelisted currencies. Trying again...")
                
-            
         self._schedule.run_pending()
         Trade.commit()
         self.rpc.process_msg_queue(self.dataprovider._msg_queue)
@@ -267,7 +269,7 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
         # Refreshing candles
         pair_list =self.dataprovider.merge_pairs_helperpairs(self.pairlists.create_pair_list(self.active_pair_whitelist),
             self.strategy.gather_informative_pairs())
-        await self.dataprovider.refresh_latest_trades(
+        self.dataprovider.refresh_latest_trades(
             pair_list
         )
      
