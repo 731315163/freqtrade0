@@ -55,7 +55,8 @@ class Worker:
         self.freqtrade = FreqtradeBot(self._config,strategy_type=strategy)
 
         internals_config = self._config.get("internals", {})
-        self._throttle_secs = internals_config.get("process_throttle_secs", PROCESS_THROTTLE_SECS)
+        self._throttle_secs = internals_config.get("process_throttle_secs", PROCESS_THROTTLE_SECS)/100
+        self._throttle_ms = self._throttle_secs/10
         self._heartbeat_interval = internals_config.get("heartbeat_interval", 60)
 
         self._sd_notify = (
@@ -74,15 +75,11 @@ class Worker:
             self._sd_notify.notify(message)
 
     def run(self) -> None:
-        # state = None
-        # while True:
-        #     state = self._worker(old_state=state)
-        #     if state == State.RELOAD_CONFIG:
-        #         self._reconfigure()
+ 
         if len(self._looptasks) <= 0:
             self.register()
         async def _run():
-            await asyncio.gather(*[c() for c in self._looptasks])
+            await asyncio.gather(*[asyncio.create_task( c()) for c in self._looptasks])
         asyncio.run(_run())
     
     def register_looptask(self,task:Callable[[State,State|None],Coroutine]):
@@ -98,6 +95,7 @@ class Worker:
     
     async def _reload_state(self:Self,state:State, old_state:State|None=None):
          # Log state transition
+        print("call _reload_state")
         if state != old_state:
             if old_state != State.RELOAD_CONFIG:
                 self.freqtrade.notify_status(f"{state.name.lower()}")
@@ -117,36 +115,47 @@ class Worker:
             # Reset heartbeat timestamp to log the heartbeat message at
             # first throttling iteration when the state changes
             self._heartbeat_msg = 0
+        else:
+            await asyncio.sleep(self._throttle_secs)
     async def _stopstate(self:Self,state, old_state=None):
+        print("call _stopstate")
         if state == State.STOPPED:
             # Ping systemd watchdog before sleeping in the stopped state
             self._notify("WATCHDOG=1\nSTATUS=State: STOPPED.")
-
             await self._throttle(func=self._process_stopped, throttle_secs=self._throttle_secs)
-
+        else:
+           await asyncio.sleep(self._throttle_secs)
     
     async def _process_state(self:Self,state, old_state=None):
+        print("call _process_state")
         if state in (State.RUNNING, State.PAUSED):
             state_str = "RUNNING" if state == State.RUNNING else "PAUSED"
             # Ping systemd watchdog before throttling
             self._notify(f"WATCHDOG=1\nSTATUS=State: {state_str}.")
-
+            async def _process_running() -> None:
+                await self._process_running_callback(self.freqtrade.process)
             # Use an offset of 1s to ensure a new candle has been issued
             await self._throttle(
-                func=self._process_running,
+                func=_process_running,
                 throttle_secs=self._throttle_secs
             )
+        else:
+            await asyncio.sleep(self._throttle_secs)
+    
     async def _process_loop_state(self:Self,state, old_state=None):
+        print("call _process_loop_state")
         if state in (State.RUNNING, State.PAUSED):
             state_str = "RUNNING" if state == State.RUNNING else "PAUSED"
             # Ping systemd watchdog before throttling
             self._notify(f"WATCHDOG=1\nSTATUS=State: {state_str}.")
+            async def call():
+                await self._process_running_callback(callback=self.freqtrade.process_trades)
             # Use an offset of 1s to ensure a new candle has been issued
-            await self._throttle(
-                func=lambda self:self._process_running_callback(callback=self.freqtrade.process_trades),
-                throttle_secs=self._throttle_secs/1000
-            )
+            await self._throttle(func=call,throttle_secs=self._throttle_ms)
+        else:
+            await asyncio.sleep(self._throttle_secs)
     async def _heartbeat(self:Self,state, old_state=None):
+        print("call _heartbeat")
         if self._heartbeat_interval:
             now = time.time()
             duration = now -self._heartbeat_msg
@@ -161,6 +170,8 @@ class Worker:
                 self._heartbeat_msg = now
             else:
                 await asyncio.sleep(self._heartbeat_interval - duration)
+        else:
+            await asyncio.sleep(self._throttle_secs)
     def register(self):
         self.register_looptask(self._reload_state)
         self.register_looptask(self._stopstate) 
@@ -250,7 +261,7 @@ class Worker:
         now = self._gettime
         last_throttle_start_time = now()
         logger.debug("========================================")
-        result = func(*args, **kwargs)
+        result =await  func(*args, **kwargs)
         time_passed = now() - last_throttle_start_time
         sleep_duration = throttle_secs - time_passed
         sleep_duration = max(sleep_duration, 0.0)
@@ -261,9 +272,9 @@ class Worker:
 
     def _process_stopped(self) -> None:
         self.freqtrade.process_stopped()
-    def _process_running_callback(self,callback) -> None:
+    async def _process_running_callback(self,callback) -> None:
         try:
-            callback()
+            await callback()
         except TemporaryError as error:
             logger.warning(f"Error: {error}, retrying in {RETRY_TIMEOUT} seconds...")
             time.sleep(RETRY_TIMEOUT)
@@ -277,8 +288,7 @@ class Worker:
 
             logger.exception("OperationalException. Stopping trader ...")
             self.freqtrade.state = State.STOPPED
-    def _process_running(self) -> None:
-        self._process_running_callback(self.freqtrade.process)
+   
        
 
     def _reconfigure(self) -> None:

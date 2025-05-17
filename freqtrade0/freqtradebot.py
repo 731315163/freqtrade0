@@ -25,11 +25,11 @@ from freqtrade.enums.runmode import RunMode
 from freqtrade.exceptions import (DependencyException, ExchangeError,
                                   InsufficientFundsError,
                                   InvalidOrderException, PricingError)
-from freqtrade.exchange import (ROUND_DOWN, ROUND_UP,
+from freqtrade0.exchange import (ROUND_DOWN, ROUND_UP,
                                 remove_exchange_credentials,
                                 timeframe_to_minutes, timeframe_to_next_date,
                                 timeframe_to_seconds)
-from freqtrade.exchange.exchange_types import CcxtOrder, OrderBook
+from freqtrade0.exchange.exchange_types import CcxtOrder, OrderBook
 from freqtrade.leverage.liquidation_price import update_liquidation_prices
 from freqtrade.misc import safe_value_fallback, safe_value_fallback2
 from freqtrade.mixins import LoggingMixin
@@ -184,7 +184,7 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
         
         
         
-    def process(self) -> None:
+    async def process(self) -> None:
         """
         Queries the persistence layer for open trades and handles them,
         otherwise a new trade is created.
@@ -205,7 +205,7 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
           # Refreshing candles
         pair_list =self.dataprovider.merge_pairs_helperpairs(self.pairlists.create_pair_list(self.active_pair_whitelist),
             self.strategy.gather_informative_pairs())
-        self.dataprovider.refresh_latest_ohlcv(
+        await self.dataprovider.refresh_latest_ohlcv(
             pair_list
         )
         strategy_safe_wrapper(self.strategy.bot_loop_start, supress_error=True)(
@@ -257,7 +257,7 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
         self.rpc.process_msg_queue(self.dataprovider._msg_queue)
         self.last_process = datetime.now(timezone.utc)
 
-    def process_trades(self):
+    async def process_trades(self):
         if not self.strategy.loop_enable :
              return 
         trades: list[Trade] = Trade.get_open_trades()
@@ -267,12 +267,10 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
         # Refreshing candles
         pair_list =self.dataprovider.merge_pairs_helperpairs(self.pairlists.create_pair_list(self.active_pair_whitelist),
             self.strategy.gather_informative_pairs())
-        self.dataprovider.refresh_latest_trades(
+        await self.dataprovider.refresh_latest_trades(
             pair_list
         )
      
-
-
         with self._exit_lock:
             # Check for exchange cancellations, timeouts and user requested replace
             self.manage_open_orders()
