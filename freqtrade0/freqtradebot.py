@@ -2,6 +2,7 @@
 Freqtrade is the main module of this bot. It contains the class Freqtrade()
 """
 
+import asyncio
 import logging
 import traceback
 from copy import deepcopy
@@ -37,7 +38,6 @@ from freqtrade.persistence import Order, PairLocks, Trade, init_db
 from freqtrade.persistence.key_value_store import set_startup_time
 from freqtrade.plugins.pairlistmanager import PairListManager
 from freqtrade.plugins.protectionmanager import ProtectionManager
-from freqtrade.resolvers import ExchangeResolver
 from freqtrade.rpc import RPCManager
 from freqtrade.rpc.external_message_consumer import ExternalMessageConsumer
 from freqtrade.rpc.rpc_types import (ProfitLossStr, RPCCancelMsg, RPCEntryMsg,
@@ -51,7 +51,7 @@ from freqtrade.wallets import Wallets
 from schedule import Scheduler
 
 from freqtrade0.data.dataprovider import DataProvider
-from freqtrade0.resolvers import StrategyResolver
+from freqtrade0.resolvers import StrategyResolver,ExchangeResolver
 from freqtrade0.strategy import IStrategy
 
 logger = logging.getLogger(__name__)
@@ -258,6 +258,10 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
         self.last_process = datetime.now(timezone.utc)
 
     async def process_trades(self):
+         # Check whether markets have to be reloaded and reload them when it's needed
+        self.exchange.reload_markets()
+
+        self.update_trades_without_assigned_fees()
         if not self.strategy.loop_enable :
              return 
         trades: list[Trade] = Trade.get_open_trades()
@@ -267,22 +271,14 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
         # Refreshing candles
         pair_list =self.dataprovider.merge_pairs_helperpairs(self.pairlists.create_pair_list(self.active_pair_whitelist),
             self.strategy.gather_informative_pairs())
+        
         await self.dataprovider.refresh_latest_trades(
             pair_list
         )
      
-        with self._exit_lock:
-            # Check for exchange cancellations, timeouts and user requested replace
-            self.manage_open_orders()
 
-        # Protect from collisions with force_exit.
-        # Without this, freqtrade may try to recreate stoploss_on_exchange orders
-        # while exiting is in process, since telegram messages arrive in an different thread.
-        with self._exit_lock:
-            trades = Trade.get_open_trades()
-            # First process current opened trades (positions)
-            self.exit_positions(trades)
-            Trade.commit()
+
+        
 
         # Check if we need to adjust our current positions before attempting to enter new trades.
         if self.strategy.position_adjustment_enable:
@@ -310,9 +306,10 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
                         logger.debug("Found no enter signals for whitelisted currencies. Trying again...")
                
             
-        self._schedule.run_pending()
+        # self._schedule.run_pending()
         Trade.commit()
-        self.rpc.process_msg_queue(self.dataprovider._msg_queue)
+        # self.rpc.process_msg_queue(self.dataprovider._msg_queue)
+        
         self.last_process = datetime.now(timezone.utc)
 
     def _get_bidirectional_pairs(self):

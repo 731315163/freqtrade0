@@ -1,6 +1,6 @@
 # flake8: noqa: F401
 # isort: off
-from freqtrade0.exchange.common import remove_exchange_credentials, MAP_EXCHANGE_CHILDCLASS
+from freqtrade.exchange.common import remove_exchange_credentials, MAP_EXCHANGE_CHILDCLASS
 from .exchange import Exchange
 
 # isort: on

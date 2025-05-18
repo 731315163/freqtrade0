@@ -6,12 +6,12 @@ import logging
 from inspect import isclass
 from typing import Any
 
-import freqtrade0.exchange as exchanges
+
 from freqtrade.constants import Config, ExchangeConfig
-from freqtrade0.exchange import MAP_EXCHANGE_CHILDCLASS, Exchange
+
 from freqtrade.resolvers.iresolver import IResolver
-
-
+from freqtrade0.exchange import MAP_EXCHANGE_CHILDCLASS, Exchange
+import freqtrade0.exchange as exchanges
 logger = logging.getLogger(__name__)
 
 

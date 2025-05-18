@@ -55,7 +55,7 @@ class Worker:
         self.freqtrade = FreqtradeBot(self._config,strategy_type=strategy)
 
         internals_config = self._config.get("internals", {})
-        self._throttle_secs = internals_config.get("process_throttle_secs", PROCESS_THROTTLE_SECS)/100
+        self._throttle_secs = internals_config.get("process_throttle_secs", PROCESS_THROTTLE_SECS)
         self._throttle_ms = self._throttle_secs/10
         self._heartbeat_interval = internals_config.get("heartbeat_interval", 60)
 
@@ -152,8 +152,7 @@ class Worker:
                 await self._process_running_callback(callback=self.freqtrade.process_trades)
             # Use an offset of 1s to ensure a new candle has been issued
             await self._throttle(func=call,throttle_secs=self._throttle_ms)
-        else:
-            await asyncio.sleep(self._throttle_secs)
+       
     async def _heartbeat(self:Self,state, old_state=None):
         print("call _heartbeat")
         if self._heartbeat_interval:
@@ -173,11 +172,14 @@ class Worker:
         else:
             await asyncio.sleep(self._throttle_secs)
     def register(self):
-        self.register_looptask(self._reload_state)
-        self.register_looptask(self._stopstate) 
-        self.register_looptask(self._heartbeat)
-        self.register_looptask(self._process_state)
+        async def merger_state(state,old_state):
+            await self._reload_state(state,old_state)
+            await self._stopstate(state,old_state)
+            await self._process_state(state,old_state)
+        self.register_looptask(merger_state)
         self.register_looptask(self._process_loop_state)
+        self.register_looptask(self._heartbeat)
+        
         
 
     # def _worker(self, old_state: State | None) -> State:

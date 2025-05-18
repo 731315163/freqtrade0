@@ -1,0 +1,3 @@
+
+include freqtrade0/exchange/binance_leverage_tiers.json
+

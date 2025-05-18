@@ -130,7 +130,7 @@ class DataProvider(dataprovider.DataProvider):
         ohlcv_refresh_time={}
        
         last_refresh_time=deepcopy(self._exchange._pairs_last_refresh_time)
-        await asyncio.to_thread( self._exchange.refresh_latest_ohlcv,pairlist)
+        await  self._exchange.refresh_latest_ohlcv(pairlist)
         for pair_timeframe,time in self._exchange._pairs_last_refresh_time.items():
             if pair_timeframe in last_refresh_time and last_refresh_time[pair_timeframe] < time:
                 ohlcv_refresh_time[pair_timeframe]=time
@@ -141,7 +141,7 @@ class DataProvider(dataprovider.DataProvider):
         """
         use_public_trades = self._config.get("exchange", {}).get("use_public_trades", False)
         if use_public_trades and self._exchange:
-            return await asyncio.to_thread(self._exchange.refresh_latest_trades,pairlist)
+            return await self._exchange.refresh_latest_trades(pairlist)
         else:
             return {}
    
