@@ -2,9 +2,9 @@
 
 import logging
 
+from .exchange import Exchange
 from freqtrade.exchange.exchange_types import FtHas
 
-from .exchange import Exchange
 
 logger = logging.getLogger(__name__)
 

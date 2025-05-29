@@ -4,15 +4,16 @@ import logging
 from datetime import datetime
 
 import ccxt
+
 from freqtrade.constants import BuySell
 from freqtrade.enums import MarginMode, PriceType, TradingMode
-from freqtrade.exceptions import (DDosProtection, OperationalException,
-                                  TemporaryError)
+from freqtrade.exceptions import DDosProtection, OperationalException, TemporaryError
 from freqtrade.exchange.common import retrier
 from freqtrade.exchange.exchange_types import CcxtOrder, FtHas
 from freqtrade.misc import safe_value_fallback2
 
 from .exchange import Exchange
+
 
 logger = logging.getLogger(__name__)
 

@@ -222,8 +222,7 @@ def test_dca_buying(default_conf_usdt, ticker_usdt, fee, mocker) -> None:
     freqtrade.enter_positions()
 
     assert len(Trade.get_trades().all()) == 1
-    trade: Trade | None = Trade.get_trades().first()
-    assert trade is not None
+    trade = Trade.get_trades().first()
     assert len(trade.orders) == 1
     assert pytest.approx(trade.stake_amount) == 60
     assert trade.open_rate == 2.0

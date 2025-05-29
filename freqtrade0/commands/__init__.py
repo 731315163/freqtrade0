@@ -8,7 +8,7 @@ Note: Be careful with file-scoped imports in these subfiles.
 """
 
 from freqtrade.commands.analyze_commands import start_analysis_entries_exits
-from freqtrade.commands.arguments import Arguments
+
 from freqtrade.commands.build_config_commands import start_new_config, start_show_config
 from freqtrade.commands.data_commands import (
     start_convert_data,
@@ -45,3 +45,6 @@ from freqtrade.commands.pairlist_commands import start_test_pairlist
 from freqtrade.commands.plot_commands import start_plot_dataframe, start_plot_profit
 from freqtrade.commands.strategy_utils_commands import start_strategy_update
 from freqtrade.commands.webserver_commands import start_webserver
+
+from freqtrade0.commands.arguments import Arguments
+from freqtrade0.commands.trade_commands import start_trading

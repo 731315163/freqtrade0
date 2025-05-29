@@ -10,9 +10,9 @@ import ccxt
 from freqtrade.constants import Config, PairWithTimeframe
 from freqtrade.enums.candletype import CandleType
 from freqtrade.exceptions import TemporaryError
-from freqtrade.exchange.common import retrier
-from freqtrade.exchange.exchange import timeframe_to_seconds
-from freqtrade.exchange.exchange_types import OHLCVResponse
+from freqtrade0.exchange.common import retrier
+from freqtrade0.exchange.exchange import timeframe_to_seconds
+from freqtrade0.exchange.exchange_types import OHLCVResponse
 from freqtrade.util import dt_ts, format_ms_time, format_ms_time_det
 
 

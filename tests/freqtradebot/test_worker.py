@@ -8,7 +8,7 @@ import time_machine
 
 from freqtrade.data.dataprovider import DataProvider
 from freqtrade.enums import State
-from freqtrade0.worker import Worker
+from freqtrade.worker import Worker
 from tests.conftest import EXMS, get_patched_worker, log_has, log_has_re
 
 

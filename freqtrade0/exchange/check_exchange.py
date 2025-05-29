@@ -3,8 +3,8 @@ import logging
 from freqtrade.constants import Config
 from freqtrade.enums import RunMode
 from freqtrade.exceptions import OperationalException
-from freqtrade.exchange import available_exchanges, is_exchange_known_ccxt, validate_exchange
-from freqtrade.exchange.common import MAP_EXCHANGE_CHILDCLASS, SUPPORTED_EXCHANGES
+from freqtrade0.exchange import available_exchanges, is_exchange_known_ccxt, validate_exchange
+from freqtrade0.exchange.common import MAP_EXCHANGE_CHILDCLASS, SUPPORTED_EXCHANGES
 
 
 logger = logging.getLogger(__name__)

@@ -26,7 +26,7 @@ from freqtrade.exchange.common import (
     MAP_EXCHANGE_CHILDCLASS,
     SUPPORTED_EXCHANGES,
 )
-from freqtrade.exchange.exchange_utils_timeframe import timeframe_to_minutes, timeframe_to_prev_date
+from freqtrade0.exchange.exchange_utils_timeframe import timeframe_to_minutes, timeframe_to_prev_date
 from freqtrade.ft_types import ValidExchangesType
 from freqtrade.util import FtPrecise
 

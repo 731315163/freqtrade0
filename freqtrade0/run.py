@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Literal, overload
 
 from freqtrade import __version__
-from freqtrade.commands import Arguments
+
 from freqtrade.configuration import Configuration, TimeRange
 from freqtrade.constants import DOCS_LINK
 from freqtrade.data.history import history_utils
@@ -28,7 +28,7 @@ from freqtrade0.strategy import IStrategy
 from freqtrade0.worker import Worker
 from freqtrade0.commands import cmd, hp
 from freqtrade0.commands.timeframestr import TimeFrameStr
-
+from freqtrade0.commands import Arguments
 logger = logging.getLogger(__name__)
 
 

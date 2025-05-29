@@ -7,10 +7,10 @@ from datetime import datetime
 from freqtrade.constants import BuySell
 from freqtrade.enums import MarginMode, TradingMode
 from freqtrade.exceptions import ExchangeError, OperationalException
+from .exchange import Exchange
 from freqtrade.exchange.exchange_types import CcxtOrder, FtHas
 from freqtrade.util.datetime_helpers import dt_from_ts
 
-from .exchange import Exchange
 
 logger = logging.getLogger(__name__)
 

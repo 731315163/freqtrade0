@@ -11,7 +11,6 @@ from threading import Lock
 from time import sleep
 from typing import Any, cast
 
-import freqtrade
 from freqtrade import constants
 from freqtrade.configuration import validate_config_consistency
 from freqtrade.constants import (BuySell, Config, EntryExecuteMode,
@@ -50,6 +49,7 @@ from freqtrade.wallets import Wallets
 from schedule import Scheduler
 
 from freqtrade0.data.dataprovider import DataProvider
+
 from freqtrade0.resolvers import StrategyResolver,ExchangeResolver
 from freqtrade0.strategy import IStrategy
 
@@ -199,16 +199,12 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
         trades: list[Trade] = Trade.get_open_trades()
 
         self.active_pair_whitelist = self._refresh_active_whitelist(trades)
-
-        # Refreshing candles
-        self.dataprovider.refresh(
-            self.pairlists.create_pair_list(self.active_pair_whitelist),
-            self.strategy.gather_informative_pairs(),
-        )
-        #   # Refreshing candles
-        # pair_list =self.dataprovider.merge_pairs_helperpairs(self.pairlists.create_pair_list(self.active_pair_whitelist),
-        #     self.strategy.gather_informative_pairs())
-    
+        pairlist = self.pairlists.create_pair_list(self.active_pair_whitelist)
+        ohlcv_pair_list =self.dataprovider.merge_pairs_helperpairs(pairlist,
+            self.strategy.gather_informative_pairs())
+        self.dataprovider.refresh_latest_ohlcv(ohlcv_pair_list)
+        trade_pair_list = self.dataprovider.merge_pairs_helperpairs(pairlist,self.strategy.gather_informative_trade_pairs())
+        self.dataprovider.refresh_latest_trades(trade_pair_list)
         strategy_safe_wrapper(self.strategy.bot_loop_start, supress_error=True)(
             current_time=datetime.now(timezone.utc)
         )
@@ -247,7 +243,8 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
                         with self._exit_lock:
                                 if self.strategy.loop_enable :
                                     trades_created += self._create_trade_loop(pair)
-                                trades_created += self.create_trade(pair)
+                                else:
+                                    trades_created += self.create_trade(pair)
                     except DependencyException as exception:
                         logger.warning("Unable to create trade for %s: %s", pair, exception)
 
@@ -259,67 +256,68 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
         self.rpc.process_msg_queue(self.dataprovider._msg_queue)
         self.last_process = datetime.now(timezone.utc)
 
-    async def process_trades(self):
-        if not self.strategy.loop_enable :
-             return 
-        trades: list[Trade] = Trade.get_open_trades()
+    # async def process_trades(self):
+    #     if not self.strategy.loop_enable :
+    #          return 
+    #     trades: list[Trade] = Trade.get_open_trades()
 
-        self.active_pair_whitelist = self._refresh_active_whitelist(trades)
+    #     self.active_pair_whitelist = self._refresh_active_whitelist(trades)
 
-        # Refreshing candles
-        pair_list =self.dataprovider.merge_pairs_helperpairs(self.pairlists.create_pair_list(self.active_pair_whitelist),
-            self.strategy.gather_informative_pairs())
-        self.dataprovider.refresh_latest_trades(
-            pair_list
-        )
+    #     # Refreshing candles
+    #     pair_list =self.dataprovider.merge_pairs_helperpairs(self.pairlists.create_pair_list(self.active_pair_whitelist),
+    #         self.strategy.gather_informative_pairs())
+    #     self.dataprovider.refresh_latest_trades(
+    #         pair_list
+    #     )
      
-        with self._exit_lock:
-            # Check for exchange cancellations, timeouts and user requested replace
-            self.manage_open_orders()
+    #     with self._exit_lock:
+    #         # Check for exchange cancellations, timeouts and user requested replace
+    #         self.manage_open_orders()
 
-        # Protect from collisions with force_exit.
-        # Without this, freqtrade may try to recreate stoploss_on_exchange orders
-        # while exiting is in process, since telegram messages arrive in an different thread.
-        with self._exit_lock:
-            trades = Trade.get_open_trades()
-            # First process current opened trades (positions)
-            self.exit_positions(trades)
-            Trade.commit()
+    #     # Protect from collisions with force_exit.
+    #     # Without this, freqtrade may try to recreate stoploss_on_exchange orders
+    #     # while exiting is in process, since telegram messages arrive in an different thread.
+    #     with self._exit_lock:
+    #         trades = Trade.get_open_trades()
+    #         # First process current opened trades (positions)
+    #         self.exit_positions(trades)
+    #         Trade.commit()
 
-        # Check if we need to adjust our current positions before attempting to enter new trades.
-        if self.strategy.position_adjustment_enable:
-            with self._exit_lock:
-                    self.process_open_trade_positions()
+    #     # Check if we need to adjust our current positions before attempting to enter new trades.
+    #     if self.strategy.position_adjustment_enable:
+    #         with self._exit_lock:
+    #                 self.process_open_trade_positions()
 
-        # Then looking for entry opportunities
-        if self.state == State.RUNNING and self.get_free_open_trades():
-            whitelist = self._get_nolock_whitelist()
-            if not whitelist:
-                self.log_once("Active pair whitelist is empty.", logger.info)
-            else:
-                trades_created = 0
-        # Create entity and execute trade for each pair from whitelist
-                for pair in whitelist:
-                    try:
-                        with self._exit_lock:
-                            if self.strategy.loop_enable :
-                                trades_created += self._create_trade_loop(pair)
+    #     # Then looking for entry opportunities
+    #     if self.state == State.RUNNING and self.get_free_open_trades():
+    #         whitelist = self._get_nolock_whitelist()
+    #         if not whitelist:
+    #             self.log_once("Active pair whitelist is empty.", logger.info)
+    #         else:
+    #             trades_created = 0
+    #     # Create entity and execute trade for each pair from whitelist
+    #             for pair in whitelist:
+    #                 try:
+    #                     with self._exit_lock:
+    #                         if self.strategy.loop_enable :
+    #                             trades_created += self._create_trade_loop(pair)
                            
-                    except DependencyException as exception:
-                        logger.warning("Unable to create trade for %s: %s", pair, exception)
+    #                 except DependencyException as exception:
+    #                     logger.warning("Unable to create trade for %s: %s", pair, exception)
 
-                    if not trades_created:
-                        logger.debug("Found no enter signals for whitelisted currencies. Trying again...")
+    #                 if not trades_created:
+    #                     logger.debug("Found no enter signals for whitelisted currencies. Trying again...")
                
             
-        self._schedule.run_pending()
-        Trade.commit()
-        self.rpc.process_msg_queue(self.dataprovider._msg_queue)
-        self.last_process = datetime.now(timezone.utc)
+    #     self._schedule.run_pending()
+    #     Trade.commit()
+    #     self.rpc.process_msg_queue(self.dataprovider._msg_queue)
+    #     self.last_process = datetime.now(timezone.utc)
 
     def _get_bidirectional_pairs(self):
 
-        trade_pairs = {}
+        trade_pairs:dict[str,str] = {}
+        
         for trade in Trade.get_open_trades():
             trade = cast(Trade, trade)
             pair = trade.pair
@@ -344,12 +342,14 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
         """
         pairs_directions = self._get_bidirectional_pairs()
         direction = pairs_directions.get(pair, "")
-        if signal is None or signal == direction or signal in direction:
-            return True
-        elif can_hedge_mode:
+        if pair not in pairs_directions:
+            # open
             return False
-        else:
+        elif not can_hedge_mode or signal is None or len(signal) == len(direction) or signal in direction:
+            # not open
             return True
+        else:
+            return False 
     def _get_nolock_whitelist(self) -> list[str]|None:
         """
         获取非锁定状态下的白名单，若存在全局锁定则返回空列表或 None。
@@ -395,40 +395,39 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
             pair, signal, self.strategy.can_hedge_mode
         )
         if not_opening:
-            self.logger.info(f"Not opening {pair} because of direction mismatch")
+            self.logger.info(f" trade_loop,not opening {pair} because of direction mismatch")
             return False
         if signal :
             stake_amount = stake_amount if stake_amount else self.wallets.get_trade_stake_amount(
                 pair, self.config["max_open_trades"], self.edge
             )
-            self.execute_entry(pair=pair, stake_amount=stake_amount, price=price,is_short=(entry_tag==SignalDirection.SHORT))
-            return True
+            return self.execute_entry(pair=pair, stake_amount=stake_amount, price=price,is_short=(entry_tag==SignalDirection.SHORT))
         return False
-    def enter_positions(self) -> int:
-        """
-        Tries to execute entry orders for new trades (positions)
-        """
-        trades_created = 0
+    # def enter_positions(self) -> int:
+    #     """
+    #     Tries to execute entry orders for new trades (positions)
+    #     """
+    #     trades_created = 0
 
-        whitelist = self._get_nolock_whitelist()
-        if not whitelist:
-            self.log_once("Active pair whitelist is empty.", logger.info)
-            return trades_created
-        # Create entity and execute trade for each pair from whitelist
-        for pair in whitelist:
-            try:
-                with self._exit_lock:
-                    if self.strategy.loop_enable:
-                        trades_created += self._create_trade_loop(pair)
-                    else:
-                        trades_created += self.create_trade(pair)
-            except DependencyException as exception:
-                logger.warning("Unable to create trade for %s: %s", pair, exception)
+    #     whitelist = self._get_nolock_whitelist()
+    #     if not whitelist:
+    #         self.log_once("Active pair whitelist is empty.", logger.info)
+    #         return trades_created
+    #     # Create entity and execute trade for each pair from whitelist
+    #     for pair in whitelist:
+    #         try:
+    #             with self._exit_lock:
+    #                 if self.strategy.loop_enable:
+    #                     trades_created += self._create_trade_loop(pair)
+    #                 else:
+    #                     trades_created += self.create_trade(pair)
+    #         except DependencyException as exception:
+    #             logger.warning("Unable to create trade for %s: %s", pair, exception)
 
-        if not trades_created:
-            logger.debug("Found no enter signals for whitelisted currencies. Trying again...")
+    #     if not trades_created:
+    #         logger.debug("Found no enter signals for whitelisted currencies. Trying again...")
 
-        return trades_created
+    #     return trades_created
 
     def create_trade(self, pair: str) -> bool:
         """

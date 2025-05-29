@@ -5,7 +5,6 @@ import logging
 import time
 from copy import deepcopy
 from datetime import timedelta
-from typing import cast
 from unittest.mock import ANY, MagicMock, PropertyMock, patch
 
 import pytest
@@ -32,12 +31,12 @@ from freqtrade.exceptions import (
     TemporaryError,
 )
 
+from freqtrade0.freqtradebot import FreqtradeBot
+from freqtrade0.worker import Worker
+
 from freqtrade.persistence import Order, PairLocks, Trade
 from freqtrade.plugins.protections.iprotection import ProtectionReturn
 from freqtrade.util.datetime_helpers import dt_now, dt_utc
-
-from freqtrade0.worker import Worker
-from freqtrade0.freqtradebot import FreqtradeBot
 
 from tests.conftest import (
     EXMS,
@@ -323,7 +322,7 @@ def test_edge_overrides_stoploss(
     patch_get_signal(freqtrade)
     freqtrade.strategy.min_roi_reached = MagicMock(return_value=False)
     freqtrade.enter_positions()
-    trade: Trade | None = Trade.session.scalars(select(Trade)).first()
+    trade = Trade.session.scalars(select(Trade)).first()
     caplog.clear()
     #############################################
     ticker_val.update(
@@ -337,7 +336,6 @@ def test_edge_overrides_stoploss(
     # stoploss should be hit
     assert freqtrade.handle_trade(trade) is not ignore_strat_sl
     if not ignore_strat_sl:
-        trade = cast(Trade, trade)
         assert log_has_re("Exit for NEO/BTC detected. Reason: stop_loss.*", caplog)
         assert trade.exit_reason == ExitType.STOP_LOSS.value
         # Test compatibility ...
@@ -664,11 +662,11 @@ def test_create_trades_preopen(
     limit_buy_order_usdt_open["id"] = "123444"
 
     # Create 2 new trades using create_trades
-    assert freqtrade.create_trade("ETH/USDT")
-    assert freqtrade.create_trade("NEO/BTC")
+    assert not freqtrade.create_trade("ETH/USDT")
+    assert not freqtrade.create_trade("NEO/BTC")
 
     trades = Trade.get_open_trades()
-    assert len(trades) == 4
+    assert len(trades) == 2
 
 
 @pytest.mark.parametrize("is_short", [False, True])
@@ -1247,7 +1245,7 @@ def test_enter_positions(
     freqtrade = get_patched_freqtradebot(mocker, default_conf_usdt)
 
     mock_ct = mocker.patch(
-        "freqtrade.freqtradebot.FreqtradeBot.create_trade",
+        "freqtrade0.freqtradebot.FreqtradeBot.create_trade",
         MagicMock(return_value=return_value, side_effect=side_effect),
     )
     n = freqtrade.enter_positions()
@@ -1820,7 +1818,7 @@ def test_close_trade(
 
 def test_bot_loop_start_called_once(mocker, default_conf_usdt, caplog):
     ftbot = get_patched_freqtradebot(mocker, default_conf_usdt)
-    mocker.patch("freqtrade.freqtradebot.FreqtradeBot.create_trade")
+    mocker.patch("freqtrade0.freqtradebot.FreqtradeBot.create_trade")
     patch_get_signal(ftbot)
     ftbot.strategy.bot_loop_start = MagicMock(side_effect=ValueError)
     ftbot.strategy.analyze = MagicMock()

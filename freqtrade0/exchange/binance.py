@@ -11,14 +11,14 @@ from freqtrade.constants import DEFAULT_DATAFRAME_COLUMNS
 from freqtrade.enums import CandleType, MarginMode, PriceType, TradingMode
 from freqtrade.exceptions import DDosProtection, OperationalException, TemporaryError
 from .exchange import Exchange
-from freqtrade.exchange.binance_public_data import (
+from freqtrade0.exchange.binance_public_data import (
     concat_safe,
     download_archive_ohlcv,
     download_archive_trades,
 )
-from freqtrade.exchange.common import retrier
-from freqtrade.exchange.exchange_types import FtHas, Tickers
-from freqtrade.exchange.exchange_utils_timeframe import timeframe_to_msecs
+from freqtrade0.exchange.common import retrier
+from freqtrade0.exchange.exchange_types import FtHas, Tickers
+from freqtrade0.exchange.exchange_utils_timeframe import timeframe_to_msecs
 from freqtrade.misc import deep_merge_dicts, json_load
 from freqtrade.util.datetime_helpers import dt_from_ts, dt_ts
 

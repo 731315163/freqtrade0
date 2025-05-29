@@ -55,7 +55,7 @@ class Worker:
         self.freqtrade = FreqtradeBot(self._config,strategy_type=strategy)
 
         internals_config = self._config.get("internals", {})
-        self._throttle_secs = internals_config.get("process_throttle_secs", PROCESS_THROTTLE_SECS)/10
+        self._throttle_secs = internals_config.get("process_throttle_secs", PROCESS_THROTTLE_SECS)/1000
         self._throttle_ms = self._throttle_secs/10
         self._heartbeat_interval = internals_config.get("heartbeat_interval", 60)
 

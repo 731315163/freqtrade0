@@ -5,15 +5,15 @@ from datetime import datetime
 from typing import Any
 
 import ccxt
-from freqtrade.constants import BuySell
-from freqtrade.enums import MarginMode, TradingMode
-from freqtrade.exceptions import (DDosProtection, OperationalException,
-                                  TemporaryError)
-from freqtrade.exchange.common import retrier
-from freqtrade.exchange.exchange_types import CcxtBalances, FtHas, Tickers
 from pandas import DataFrame
 
+from freqtrade.constants import BuySell
+from freqtrade.enums import MarginMode, TradingMode
+from freqtrade.exceptions import DDosProtection, OperationalException, TemporaryError
 from .exchange import Exchange
+from freqtrade.exchange.common import retrier
+from freqtrade.exchange.exchange_types import CcxtBalances, FtHas, Tickers
+
 
 logger = logging.getLogger(__name__)
 

@@ -6,7 +6,6 @@ import re
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from collections.abc import Iterator
 from unittest.mock import MagicMock, Mock, PropertyMock
 
 import numpy as np
@@ -15,16 +14,20 @@ import pytest
 from xdist.scheduler.loadscope import LoadScopeScheduling
 
 from freqtrade import constants
-from freqtrade.commands import Arguments
+
 from freqtrade.data.converter import ohlcv_to_dataframe, trades_list_to_df
 from freqtrade.edge import PairInfo
 from freqtrade.enums import CandleType, MarginMode, RunMode, SignalDirection, TradingMode
-from freqtrade.exchange import Exchange, timeframe_to_minutes, timeframe_to_seconds
-from freqtrade.freqtradebot import FreqtradeBot
 from freqtrade.persistence import LocalTrade, Order, Trade, init_db
-from freqtrade.resolvers import ExchangeResolver
 from freqtrade.util import dt_now, dt_ts
-from freqtrade.worker import Worker
+
+from freqtrade0.commands import Arguments
+from freqtrade0.exchange import Exchange, timeframe_to_minutes, timeframe_to_seconds
+from freqtrade0.freqtradebot import FreqtradeBot
+
+from freqtrade0.resolvers import ExchangeResolver
+
+from freqtrade0.worker import Worker
 from tests.conftest_trades import (
     leverage_trade,
     mock_trade_1,
@@ -54,7 +57,7 @@ np.seterr(all="raise")
 
 CURRENT_TEST_STRATEGY = "StrategyTestV3"
 TRADE_SIDES = ("long", "short")
-EXMS = "freqtrade.exchange.exchange.Exchange"
+EXMS = "freqtrade0.exchange.exchange.Exchange"
 
 
 def pytest_addoption(parser):
@@ -139,7 +142,7 @@ def generate_trades_history(n_rows, start_date: datetime | None = None, days=5):
     timestamp = pd.to_datetime(random_timestamps_in_seconds, unit="s")
 
     trade_id = [
-        f"a{np.random.randint(1**6, 1**7 - 1)}cd{np.random.randint(100, 999)}" for _ in range(n_rows)
+        f"a{np.random.randint(1e6, 1e7 - 1)}cd{np.random.randint(100, 999)}" for _ in range(n_rows)
     ]
 
     side = np.random.choice(["buy", "sell"], n_rows)
@@ -239,6 +242,7 @@ def patched_configuration_load_config_file(mocker, config) -> None:
 def patch_exchange(
     mocker, api_mock=None, exchange="binance", mock_markets=True, mock_supported_modes=True
 ) -> None:
+    # mocker.patch(f"{EXMS}.refresh_latest_ohlcv", MagicMock(return_value=None))
     mocker.patch(f"{EXMS}.validate_config", MagicMock())
     mocker.patch(f"{EXMS}.validate_timeframes", MagicMock())
     mocker.patch(f"{EXMS}.id", PropertyMock(return_value=exchange))
@@ -246,7 +250,7 @@ def patch_exchange(
     mocker.patch(f"{EXMS}.precisionMode", PropertyMock(return_value=2))
     mocker.patch(f"{EXMS}.precision_mode_price", PropertyMock(return_value=2))
     # Temporary patch ...
-    mocker.patch("freqtrade.exchange.bybit.Bybit.cache_leverage_tiers")
+    mocker.patch("freqtrade0.exchange.bybit.Bybit.cache_leverage_tiers")
 
     if mock_markets:
         mocker.patch(f"{EXMS}._load_async_markets", return_value={})
@@ -256,7 +260,7 @@ def patch_exchange(
 
     if mock_supported_modes:
         mocker.patch(
-            f"freqtrade.exchange.{exchange}.{exchange.capitalize()}"
+            f"freqtrade0.exchange.{exchange}.{exchange.capitalize()}"
             "._supported_trading_mode_margin_pairs",
             PropertyMock(
                 return_value=[
@@ -294,7 +298,7 @@ def patch_wallet(mocker, free=999.9) -> None:
 
 def patch_whitelist(mocker, conf) -> None:
     mocker.patch(
-        "freqtrade.freqtradebot.FreqtradeBot._refresh_active_whitelist",
+        "freqtrade0.freqtradebot.FreqtradeBot._refresh_active_whitelist",
         MagicMock(return_value=conf["exchange"]["pair_whitelist"]),
     )
 
@@ -327,12 +331,12 @@ def patch_freqtradebot(mocker, config) -> None:
     :param config: Config to pass to the bot
     :return: None
     """
-    mocker.patch("freqtrade.freqtradebot.RPCManager", MagicMock())
+    mocker.patch("freqtrade0.freqtradebot.RPCManager", MagicMock())
     patch_exchange(mocker)
-    mocker.patch("freqtrade.freqtradebot.RPCManager._init", MagicMock())
-    mocker.patch("freqtrade.freqtradebot.RPCManager.send_msg", MagicMock())
+    mocker.patch("freqtrade0.freqtradebot.RPCManager._init", MagicMock())
+    mocker.patch("freqtrade0.freqtradebot.RPCManager.send_msg", MagicMock())
     patch_whitelist(mocker, config)
-    mocker.patch("freqtrade.freqtradebot.ExternalMessageConsumer")
+    mocker.patch("freqtrade0.freqtradebot.ExternalMessageConsumer")
     mocker.patch("freqtrade.configuration.config_validation._validate_consumers")
 
 
@@ -393,7 +397,7 @@ def patch_get_signal(
     # returns (enter, exit)
     freqtrade.strategy.get_exit_signal = patched_get_exit_signal
 
-    freqtrade.exchange.refresh_latest_ohlcv = lambda p: None
+    freqtrade.exchange.refresh_latest_ohlcv = MagicMock(return_value=None)
 
 
 def create_mock_trades(fee, is_short: bool | None = False, use_db: bool = True):
@@ -2648,7 +2652,7 @@ def testdatadir() -> Path:
 
 
 @pytest.fixture(scope="function")
-def import_fails() ->Iterator[ None]:
+def import_fails() -> None:
     # Source of this test-method:
     # https://stackoverflow.com/questions/2481511/mocking-importerror-in-python
     import builtins

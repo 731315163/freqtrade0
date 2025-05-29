@@ -4,46 +4,23 @@ This module defines the interface to apply for strategies
 """
 
 import logging
-from abc import ABC, abstractmethod
-from datetime import datetime, timedelta, timezone
-from math import isinf, isnan
-import re
+from abc import abstractmethod
+from datetime import datetime
 from typing import Literal
 
-from pandas import DataFrame
-from pydantic import ValidationError
 
-from freqtrade.constants import CUSTOM_TAG_MAX_LENGTH, Config, IntOrInf, ListPairsWithTimeframes
-from freqtrade.data.converter import populate_dataframe_with_trades
-from freqtrade.data.converter.converter import reduce_dataframe_footprint
-from freqtrade.data.dataprovider import DataProvider
+from freqtrade.constants import Config, ListPairsWithTimeframes
 from freqtrade.enums import (
     CandleType,
-    ExitCheckTuple,
-    ExitType,
-    MarketDirection,
-    RunMode,
-    SignalDirection,
-    SignalTagType,
-    SignalType,
-    TradingMode,
 )
-from freqtrade.exceptions import OperationalException, StrategyError
-from freqtrade.exchange import timeframe_to_minutes, timeframe_to_next_date, timeframe_to_seconds
-from freqtrade.exchange.exchange_types import OrderBook
-from freqtrade.ft_types import AnnotationType
-from freqtrade.misc import remove_entry_exit_signals
-from freqtrade.persistence import Order, PairLocks, Trade
-from freqtrade.strategy.hyper import HyperStrategyMixin
+from freqtrade.exceptions import OperationalException
+from freqtrade.exchange import timeframe_to_minutes
 from freqtrade.strategy.informative_decorator import (
     InformativeData,
     PopulateIndicators,
-    _create_and_merge_informative_pair,
     _format_pair_name,
 )
 from freqtrade.strategy.strategy_wrapper import strategy_safe_wrapper
-from freqtrade.util import dt_now
-from freqtrade.wallets import Wallets
 import freqtrade.strategy
 
 logger = logging.getLogger(__name__)
@@ -62,7 +39,7 @@ class IStrategy(freqtrade.strategy.IStrategy):
 
    
 
-
+    can_hedge_mode: bool = False
     loop_enable: bool = True
     def __init__(self, config: Config) -> None:
         self.config = config
@@ -90,12 +67,69 @@ class IStrategy(freqtrade.strategy.IStrategy):
                 if not informative_data.candle_type:
                     informative_data.candle_type = config["candle_type_def"]
                 self._ft_informative.append((informative_data, cls_method))
+    def informative_trade_pairs(self) -> ListPairsWithTimeframes:
+        """
+        Define additional, informative pair/interval combinations to be cached from the exchange.
+        These pair/interval combinations are non-tradable, unless they are part
+        of the whitelist as well.
+        For more information, please consult the documentation
+        :return: List of tuples in the format (pair, interval)
+            Sample: return [("ETH/USDT", "5m"),
+                            ("BTC/USDT", "15m"),
+                            ]
+        """
+        return []
+    def gather_informative_trade_pairs(self) -> ListPairsWithTimeframes:
+        """
+        Internal method which gathers all informative pairs (user or automatically defined).
+        """
+        informative_pairs = self.informative_trade_pairs()
+        # Compatibility code for 2 tuple informative pairs
+        informative_pairs = [
+            (
+                p[0],
+                p[1],
+                (
+                    CandleType.from_string(p[2])
+                    if len(p) > 2 and p[2] != ""
+                    else self.config.get("candle_type_def", CandleType.SPOT)
+                ),
+            )
+            for p in informative_pairs
+        ]
+        for inf_data, _ in self._ft_informative:
+            # Get default candle type if not provided explicitly.
+            candle_type = (
+                inf_data.candle_type
+                if inf_data.candle_type
+                else self.config.get("candle_type_def", CandleType.SPOT)
+            )
+            if inf_data.asset:
+                if any(s in inf_data.asset for s in ("{BASE}", "{base}")):
+                    for pair in self.dp.current_whitelist():
+                        pair_tf = (
+                            _format_pair_name(self.config, inf_data.asset, self.dp.market(pair)),
+                            inf_data.timeframe,
+                            candle_type,
+                        )
+                        informative_pairs.append(pair_tf)
 
-  
+                else:
+                    pair_tf = (
+                        _format_pair_name(self.config, inf_data.asset),
+                        inf_data.timeframe,
+                        candle_type,
+                    )
+                    informative_pairs.append(pair_tf)
+            else:
+                for pair in self.dp.current_whitelist():
+                    informative_pairs.append((pair, inf_data.timeframe, candle_type))
+        informative_pairs.extend(self.__informative_pairs_freqai())
+        return list(set(informative_pairs))
     
     
-    @abstractmethod
-    def loop_entry(self,pair:str,timestamp:datetime) ->tuple|None:
+    
+    def loop_entry(self,pair:str,timestamp:datetime) ->None| tuple[Literal["long","short"],float|None]|tuple[Literal["long","short"],float|None,float|None|str]|tuple[Literal["long","short"],float|None,float|None,str]:
         
         '''
         return tuple[Literal["long","short"]|None,float|None,float|None,str|None]|None:
@@ -124,21 +158,18 @@ class IStrategy(freqtrade.strategy.IStrategy):
         order_tag = ""
         if resp is None:
             return resp
-        elif isinstance(resp, tuple):
-            match len(resp):
-                case 4:
-                    return resp
-                case 3:
-                    side, stake_amount,price_or_tag = resp
-                    if isinstance(price_or_tag, str):
-                        price ,order_tag= None,price_or_tag
-                    else:
-                        price = price_or_tag
-                case 2:
-                    side, stake_amount = resp
-                    price = None
-                case _:
-                    return None
+        match resp:
+            case (side, stake_amount, price, order_tag):
+                return side, stake_amount, price, order_tag
+            case (side, stake_amount, price_or_tag):
+                if isinstance(price_or_tag, str):
+                    return side, stake_amount, None, price_or_tag
+                else:
+                    return side, stake_amount, price_or_tag, ""
+            case (side, stake_amount):
+                return side, stake_amount, None, ""
+            case _:
+                return None
        
         return side,stake_amount,price,order_tag
   

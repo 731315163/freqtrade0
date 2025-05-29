@@ -1,17 +1,17 @@
 # flake8: noqa: F401
 # isort: off
 from freqtrade0.exchange.common import remove_exchange_credentials, MAP_EXCHANGE_CHILDCLASS
-from .exchange import Exchange
+from freqtrade0.exchange.exchange import Exchange
 
 # isort: on
-from .binance import Binance
-from .bingx import Bingx
-from .bitmart import Bitmart
-from .bitpanda import Bitpanda
-from .bitvavo import Bitvavo
-from .bybit import Bybit
-from .cryptocom import Cryptocom
-from .exchange_utils import (
+from freqtrade0.exchange.binance import Binance
+from freqtrade0.exchange.bingx import Bingx
+from freqtrade0.exchange.bitmart import Bitmart
+from freqtrade0.exchange.bitpanda import Bitpanda
+from freqtrade0.exchange.bitvavo import Bitvavo
+from freqtrade0.exchange.bybit import Bybit
+from freqtrade0.exchange.cryptocom import Cryptocom
+from freqtrade0.exchange.exchange_utils import (
     ROUND_DOWN,
     ROUND_UP,
     amount_to_contract_precision,
@@ -27,7 +27,7 @@ from .exchange_utils import (
     price_to_precision,
     validate_exchange,
 )
-from freqtrade.exchange.exchange_utils_timeframe import (
+from freqtrade0.exchange.exchange_utils_timeframe import (
     timeframe_to_minutes,
     timeframe_to_msecs,
     timeframe_to_next_date,
@@ -35,12 +35,12 @@ from freqtrade.exchange.exchange_utils_timeframe import (
     timeframe_to_resample_freq,
     timeframe_to_seconds,
 )
-from .gate import Gate
-from .hitbtc import Hitbtc
-from .htx import Htx
-from .hyperliquid import Hyperliquid
-from .idex import Idex
-from .kraken import Kraken
-from .kucoin import Kucoin
-from .lbank import Lbank
-from .okx import Okx
+from freqtrade0.exchange.gate import Gate
+from freqtrade0.exchange.hitbtc import Hitbtc
+from freqtrade0.exchange.htx import Htx
+from freqtrade0.exchange.hyperliquid import Hyperliquid
+from freqtrade0.exchange.idex import Idex
+from freqtrade0.exchange.kraken import Kraken
+from freqtrade0.exchange.kucoin import Kucoin
+from freqtrade0.exchange.lbank import Lbank
+from freqtrade0.exchange.okx import Okx
