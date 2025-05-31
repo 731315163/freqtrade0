@@ -11,6 +11,8 @@ from threading import Lock
 from time import sleep
 from typing import Any, cast
 
+from pandas import DataFrame
+
 from freqtrade import constants
 from freqtrade.configuration import validate_config_consistency
 from freqtrade.constants import (BuySell, Config, EntryExecuteMode,
@@ -232,24 +234,7 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
 
         # Then looking for entry opportunities
         if self.state == State.RUNNING and self.get_free_open_trades():
-            whitelist = self._get_nolock_whitelist()
-            if not whitelist:
-                self.log_once("Active pair whitelist is empty.", logger.info)
-            else:
-                trades_created = 0
-        # Create entity and execute trade for each pair from whitelist
-                for pair in whitelist:
-                    try:
-                        with self._exit_lock:
-                                if self.strategy.loop_enable :
-                                    trades_created += self._create_trade_loop(pair)
-                                else:
-                                    trades_created += self.create_trade(pair)
-                    except DependencyException as exception:
-                        logger.warning("Unable to create trade for %s: %s", pair, exception)
-
-                    if not trades_created:
-                        logger.debug("Found no enter signals for whitelisted currencies. Trying again...")
+            self.enter_positions()
                
         self._schedule.run_pending()
         Trade.commit()
@@ -322,35 +307,35 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
             trade = cast(Trade, trade)
             pair = trade.pair
             direcation: str = trade_pairs.get(pair, "")
-            direcation += trade.trade_direction
-            trade_pairs[pair] = direcation
+            if trade.trade_direction not in direcation:
+                trade_pairs[pair] = direcation + trade.trade_direction
         return trade_pairs
 
-    def _check_pair_direction_match(self, pair: str, signal: str | None, can_hedge_mode: bool):
-        """Check if trading pair direction matches the given signal under current hedging mode.
+    # def _check_pair_direction_match(self, pair: str, signal: str | None, can_hedge_mode: bool):
+    #     """Check if trading pair direction matches the given signal under current hedging mode.
 
-        Args:
-            pair: Trading pair identifier (e.g. 'BTC/USD')
-            signal: Trading direction signal from strategy, None indicates no signal
-            can_hedge_mode: Flag indicating if hedge trading mode is enabled
+    #     Args:
+    #         pair: Trading pair identifier (e.g. 'BTC/USD')
+    #         signal: Trading direction signal from strategy, None indicates no signal
+    #         can_hedge_mode: Flag indicating if hedge trading mode is enabled
 
-        Returns:
-            bool: True if direction matches requirements, False otherwise
+    #     Returns:
+    #         bool: True if direction matches requirements, False otherwise
 
-        Note:
-            Decision logic depends on bidirectional pairs configuration and hedging mode status
-        """
-        pairs_directions = self._get_bidirectional_pairs()
-        direction = pairs_directions.get(pair, "")
-        if pair not in pairs_directions:
-            # open
-            return False
-        elif not can_hedge_mode or signal is None or len(signal) == len(direction) or signal in direction:
-            # not open
-            return True
-        else:
-            return False 
-    def _get_nolock_whitelist(self) -> list[str]|None:
+    #     Note:
+    #         Decision logic depends on bidirectional pairs configuration and hedging mode status
+    #     """
+    #     pairs_directions = self._get_bidirectional_pairs()
+    #     direction = pairs_directions.get(pair, "")
+    #     if pair not in pairs_directions:
+    #         # open
+    #         return False
+    #     elif (not can_hedge_mode) or (signal is None) or (len(signal) == len(direction)) or (signal in direction):
+    #         # not open
+    #         return True
+    #     else:
+    #         return False 
+    def _get_nolock_whitelist(self,can_hedge_mode: bool=False) -> dict[str,str]|None:
         """
         获取非锁定状态下的白名单，若存在全局锁定则返回空列表或 None。
         """
@@ -360,7 +345,7 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
         # 如果白名单为空，记录日志并返回
         if not whitelist:
             self.log_once("Active pair whitelist is empty.", logger.info)
-            return whitelist
+            return None
         
         # 检查全局锁定状态
         if PairLocks.is_global_lock(side="*"):
@@ -380,56 +365,62 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
             return []
     
         # 所有检查通过，返回白名单
-        return whitelist
+        tradespairs = self._get_bidirectional_pairs()
+        for pair in whitelist:
+            if pair in tradespairs:
+                match len( tradespairs[pair]) :
+                    case 4 | 5  if not can_hedge_mode:
+                        del tradespairs[pair]
+                    case 9:
+                        del tradespairs[pair]
+                    case _:
+                        del tradespairs[pair]
+            else:
+                tradespairs[pair]=""
+        return tradespairs
    
     #
     # enter positions / open trades logic and methods
     #
-    def _create_trade_loop(self, pair:str):
+    def _create_trade_loop(self, pair:str,df:DataFrame,direction=""):
         # current_time = self.dataprovider.orderbook(pair=pair,maximum=1)["timestamp"]
-        result = self.strategy._loop_entry(pair=pair,timestamp=dt_now())
+        result = self.strategy._loop_entry(pair=pair,timestamp=dt_now(),df=df)
         if result is None:
             return False
         signal,stake_amount,price,entry_tag= result
-        not_opening = not self._check_pair_direction_match(
-            pair, signal, self.strategy.can_hedge_mode
-        )
-        if not_opening:
+        # not_opening = not self._check_pair_direction_match(
+        #     pair=pair, signal=signal, can_hedge_mode=self.strategy.can_hedge_mode
+        # )
+        if not signal or signal == direction or signal in direction:
             self.logger.info(f" trade_loop,not opening {pair} because of direction mismatch")
             return False
-        if signal :
-            stake_amount = stake_amount if stake_amount else self.wallets.get_trade_stake_amount(
+        stake_amount = stake_amount if stake_amount else self.wallets.get_trade_stake_amount(
                 pair, self.config["max_open_trades"], self.edge
             )
-            return self.execute_entry(pair=pair, stake_amount=stake_amount, price=price,is_short=(entry_tag==SignalDirection.SHORT))
-        return False
-    # def enter_positions(self) -> int:
-    #     """
-    #     Tries to execute entry orders for new trades (positions)
-    #     """
-    #     trades_created = 0
+        return self.execute_entry(pair=pair, stake_amount=stake_amount, price=price,is_short=(signal==SignalDirection.SHORT),enter_tag=entry_tag)
+    def enter_positions(self) -> int:
+        whitelist = self._get_nolock_whitelist(can_hedge_mode=self.strategy.can_hedge_mode)
+       
+       
+        if not whitelist:
+            self.log_once("Active pair whitelist is empty.", logger.info)
+        else:
+            trades_created = 0
+            for pair,direction in whitelist.items():
+                try:
+                    analyzed_df, _ = self.dataprovider.get_analyzed_dataframe(pair=pair, timeframe=self.strategy.timeframe)
+                    with self._exit_lock:
+                            if self.strategy.loop_enable :
+                                trades_created += self._create_trade_loop(pair,analyzed_df,direction)
+                            else:
+                                trades_created += self.create_trade(pair,analyzed_df,direction)
+                except DependencyException as exception:
+                    logger.warning("Unable to create trade for %s: %s", pair, exception)
+                if not trades_created:
+                    logger.debug("Found no enter signals for whitelisted currencies. Trying again...")
+        return trades_created
 
-    #     whitelist = self._get_nolock_whitelist()
-    #     if not whitelist:
-    #         self.log_once("Active pair whitelist is empty.", logger.info)
-    #         return trades_created
-    #     # Create entity and execute trade for each pair from whitelist
-    #     for pair in whitelist:
-    #         try:
-    #             with self._exit_lock:
-    #                 if self.strategy.loop_enable:
-    #                     trades_created += self._create_trade_loop(pair)
-    #                 else:
-    #                     trades_created += self.create_trade(pair)
-    #         except DependencyException as exception:
-    #             logger.warning("Unable to create trade for %s: %s", pair, exception)
-
-    #     if not trades_created:
-    #         logger.debug("Found no enter signals for whitelisted currencies. Trying again...")
-
-    #     return trades_created
-
-    def create_trade(self, pair: str) -> bool:
+    def create_trade(self, pair: str,df:DataFrame|None =None,direction="") -> bool:
         """
         Check the implemented trading strategy for entry signals.
 
@@ -438,14 +429,11 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
 
         :return: True if a trade has been created.
         """
-        # get_free_open_trades is checked before create_trade is called
-        # but it is still used here to prevent opening too many trades within one iteration
-        if not self.get_free_open_trades():
-            logger.debug(f"Can't open a new trade for {pair}: max number of trades is reached.")
-            return False
-        logger.debug(f"create_trade for pair {pair}")
-
-        analyzed_df, _ = self.dataprovider.get_analyzed_dataframe(pair, self.strategy.timeframe)
+       
+        if df:
+            analyzed_df = df
+        else:
+            analyzed_df, _ = self.dataprovider.get_analyzed_dataframe(pair, self.strategy.timeframe)
         nowtime = analyzed_df.iloc[-1]["date"] if len(analyzed_df) > 0 else None
 
         
@@ -455,43 +443,42 @@ class FreqtradeBot(freqtrade.freqtradebot.FreqtradeBot):
         signal, enter_tag = self.strategy.get_entry_signal(
             pair, self.strategy.timeframe, analyzed_df
         )
-        not_opening = not self._check_pair_direction_match(
-            pair, signal, self.strategy.can_hedge_mode
-        )
-        if not_opening:
-            if self.strategy.is_pair_locked(pair, candle_date=nowtime, side=signal):
-                lock = PairLocks.get_pair_longest_lock(pair, nowtime, signal)
-                if lock:
-                    self.log_once(
-                        f"Pair {pair} {lock.side} is locked until "
-                        f"{lock.lock_end_time.strftime(constants.DATETIME_PRINT_FORMAT)} "
-                        f"due to {lock.reason}.",
-                        logger.info,
-                    )
-                else:
-                    self.log_once(f"Pair {pair} is currently locked.", logger.info)
-                return False
-            stake_amount = self.wallets.get_trade_stake_amount(
-                pair, self.config["max_open_trades"], self.edge
-            )
-            bid_check_dom = self.config.get("entry_pricing", {}).get("check_depth_of_market", {})
-            if (bid_check_dom.get("enabled", False)) and (
-                bid_check_dom.get("bids_to_ask_delta", 0) > 0
-            ):
-                if self._check_depth_of_market(pair, bid_check_dom, side=signal):
-                    return self.execute_entry(
-                        pair,
-                        stake_amount,
-                        enter_tag=enter_tag,
-                        is_short=(signal == SignalDirection.SHORT),
-                    )
-                else:
-                    return False
-         
-            
-            return self.execute_entry(
-                pair=pair, stake_amount=stake_amount ,enter_tag=enter_tag, is_short=(signal == SignalDirection.SHORT)
-            )
-        else:
+       
+        if not signal or signal == direction or signal in direction:
+            self.logger.info(f" trade_loop,not opening {pair} because of direction mismatch")
             return False
+        if self.strategy.is_pair_locked(pair, candle_date=nowtime, side=signal):
+            lock = PairLocks.get_pair_longest_lock(pair, nowtime, signal)
+            if lock:
+                self.log_once(
+                    f"Pair {pair} {lock.side} is locked until "
+                    f"{lock.lock_end_time.strftime(constants.DATETIME_PRINT_FORMAT)} "
+                    f"due to {lock.reason}.",
+                    logger.info,
+                )
+            else:
+                self.log_once(f"Pair {pair} is currently locked.", logger.info)
+            return False
+        stake_amount = self.wallets.get_trade_stake_amount(
+            pair, self.config["max_open_trades"], self.edge
+        )
+        bid_check_dom = self.config.get("entry_pricing", {}).get("check_depth_of_market", {})
+        if (bid_check_dom.get("enabled", False)) and (
+            bid_check_dom.get("bids_to_ask_delta", 0) > 0
+        ):
+            if self._check_depth_of_market(pair, bid_check_dom, side=signal):
+                return self.execute_entry(
+                    pair,
+                    stake_amount,
+                    enter_tag=enter_tag,
+                    is_short=(signal == SignalDirection.SHORT),
+                )
+            else:
+                return False
+        
+        
+        return self.execute_entry(
+            pair=pair, stake_amount=stake_amount ,enter_tag=enter_tag, is_short=(signal == SignalDirection.SHORT)
+        )
+      
 

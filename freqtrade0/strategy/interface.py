@@ -8,6 +8,8 @@ from abc import abstractmethod
 from datetime import datetime
 from typing import Literal
 
+from pandas import DataFrame
+
 
 from freqtrade.constants import Config, ListPairsWithTimeframes
 from freqtrade.enums import (
@@ -140,9 +142,43 @@ class IStrategy(freqtrade.strategy.IStrategy):
         signal_name: str
         '''
         pass
-    
+    def cache_dataframe(self, dataframe: DataFrame, pair:str,side:Literal["long","short"],tag="") -> DataFrame|None:
+        """
+        Parses the given candle (OHLCV) data and returns a populated DataFrame
+        add several TA indicators and buy signal to it
+        WARNING: Used internally only, may skip analysis if `process_only_new_candles` is set.
+        :param dataframe: Dataframe containing data from exchange
+        :param metadata: Metadata dictionary with additional data (e.g. 'pair')
+        :return: DataFrame of candle (OHLCV) data with indicator data and signals added
+        """
+        if  "enter_long" not in dataframe.columns  :
+            dataframe = dataframe.rename({"buy": "enter_long", "buy_tag": "enter_tag","sell":"enter_short","sell_tag":""}, axis="columns")
+        elif "enter_short" not in dataframe.columns:
+            dataframe = dataframe.rename({"buy": "enter_long", "buy_tag": "enter_tag","sell":"enter_short","sell_tag":""}, axis="columns")
+        
+        
+        if side == "long" and "enter_long" in dataframe.columns and dataframe.iloc[-1]["enter_long"] == 1:
+            return None
+        if side == "short" and "enter_short"  in dataframe.columns and  dataframe.iloc[-1]["enter_short"] == 1:
+            return None
+        
+        if side == "long":
+            dataframe.iloc[-1]["enter_long"] =1
+        else:
+            dataframe.iloc[-1]["enter_short"]=1
+        dataframe.iloc[-1]["enter_tag"] = tag
+       
+        # Test if seen this pair and last candle before.
+        # always run if process_only_new_candles is set to false
+     
+        candle_type = self.config.get("candle_type_def", CandleType.SPOT)
+        self.dp._set_cached_df(pair, self.timeframe, dataframe, candle_type=candle_type)
+        self.dp._emit_df((pair, self.timeframe, candle_type), dataframe, True)
+
+        return dataframe
     def _loop_entry(
         self,pair:str,timestamp:datetime,
+        df :DataFrame,
         **kwargs
     ) -> tuple[Literal["long","short"]|None,float|None,float|None,str|None]|None:
         """
@@ -155,23 +191,22 @@ class IStrategy(freqtrade.strategy.IStrategy):
             **kwargs,
         )
         
-        order_tag = ""
-        if resp is None:
-            return resp
+        result = None
         match resp:
             case (side, stake_amount, price, order_tag):
-                return side, stake_amount, price, order_tag
+                result=( side, stake_amount, price, order_tag)
             case (side, stake_amount, price_or_tag):
                 if isinstance(price_or_tag, str):
-                    return side, stake_amount, None, price_or_tag
+                    result=( side, stake_amount, None, price_or_tag)
                 else:
-                    return side, stake_amount, price_or_tag, ""
+                    result=( side, stake_amount, price_or_tag, "")
             case (side, stake_amount):
-                return side, stake_amount, None, ""
+                result=( side, stake_amount, None, "")
             case _:
                 return None
-       
-        return side,stake_amount,price,order_tag
+        
+        self.cache_dataframe(dataframe=df,pair=pair,side = side,tag=result[3])
+        return result
   
 
     
